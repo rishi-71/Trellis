@@ -1,180 +1,551 @@
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { useState, useEffect } from 'react';
+import { 
+  StyleSheet, 
+  Text, 
+  View, 
+  TouchableOpacity, 
+  ScrollView, 
+  TextInput, 
+  ActivityIndicator,
+  Alert
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Spacing } from '@/constants/theme';
+import { globalState } from '@/constants/globalState';
 
-import { ExternalLink } from '@/components/external-link';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Collapsible } from '@/components/ui/collapsible';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+export default function ExploreScreen() {
+  const [token, setToken] = useState<string | null>(globalState.token);
+  const [ipAddress, setIpAddress] = useState(globalState.ipAddress);
+  const [loading, setLoading] = useState(false);
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
+  // Data States
+  const [events, setEvents] = useState<any[]>([]);
+  const [activities, setActivities] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'events' | 'activities'>('events');
+
+  // Log Activity Form States
+  const [showLogForm, setShowLogForm] = useState(false);
+  const [actTitle, setActTitle] = useState('');
+  const [actType, setActType] = useState('certification'); // certification, hackathon, sports, etc.
+  const [actDesc, setActDesc] = useState('');
+  const [actDate, setActDate] = useState('2026-08-19');
+
+  // Subscribe to global state
+  useEffect(() => {
+    const unsubscribe = globalState.subscribe(() => {
+      setToken(globalState.token);
+      setIpAddress(globalState.ipAddress);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Fetch data when token or IP changes
+  useEffect(() => {
+    if (token) {
+      fetchEvents();
+      fetchActivities();
+    } else {
+      setEvents([]);
+      setActivities([]);
+    }
+  }, [token, ipAddress]);
+
+  const backendUrl = globalState.backendUrl;
+
+  const fetchEvents = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${backendUrl}/api/events`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setEvents(data.events);
+      }
+    } catch (err: any) {
+      console.log('Error fetching events:', err.message);
+    } finally {
+      setLoading(false);
+    }
   };
-  const theme = useTheme();
 
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
+  const fetchActivities = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${backendUrl}/api/activities/my`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setActivities(data.activities);
+      }
+    } catch (err: any) {
+      console.log('Error fetching activities:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegisterEvent = async (eventId: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${backendUrl}/api/events/${eventId}/register`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        Alert.alert('Success', 'Registered for event successfully!');
+        fetchEvents(); // reload events list
+      } else {
+        Alert.alert('Registration Failed', data.message || 'Already registered or deadline passed.');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', 'Connection error registering for event.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogActivity = async () => {
+    if (!actTitle) {
+      Alert.alert('Error', 'Please enter a title');
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch(`${backendUrl}/api/activities`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: actTitle,
+          type: actType,
+          description: actDesc,
+          date: new Date(actDate)
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        Alert.alert('Success', 'Activity logged! Awaiting faculty verification.');
+        setActTitle('');
+        setActDesc('');
+        setShowLogForm(false);
+        fetchActivities();
+      } else {
+        Alert.alert('Error', data.message || 'Could not log activity');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', 'Connection error logging activity.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!token) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <Text style={styles.warnTitle}>Access Restrained</Text>
+        <Text style={styles.warnText}>
+          Please navigate to the **Profile** tab, connect to the backend server, and log in to view events and log activities.
+        </Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
-          </ThemedText>
+    <SafeAreaView style={styles.container}>
+      {/* Sub Tabs Toggle */}
+      <View style={styles.tabToggleRow}>
+        <TouchableOpacity 
+          style={[styles.toggleBtn, activeTab === 'events' && styles.toggleBtnActive]} 
+          onPress={() => setActiveTab('events')}
+        >
+          <Text style={[styles.toggleBtnText, activeTab === 'events' && styles.toggleBtnTextActive]}>
+            Events
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.toggleBtn, activeTab === 'activities' && styles.toggleBtnActive]} 
+          onPress={() => setActiveTab('activities')}
+        >
+          <Text style={[styles.toggleBtnText, activeTab === 'activities' && styles.toggleBtnTextActive]}>
+            My Activities
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
+      {loading && <ActivityIndicator size="large" color="#1F2937" style={styles.loader} />}
+
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* 1. Events View */}
+        {activeTab === 'events' && (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionHeader}>Campus Events</Text>
+            {events.length === 0 ? (
+              <Text style={styles.emptyText}>No upcoming campus events listed.</Text>
+            ) : (
+              events.map((event) => (
+                <View key={event._id} style={styles.eventCard}>
+                  <Text style={styles.eventTitle}>{event.title}</Text>
+                  <Text style={styles.eventDesc}>{event.description}</Text>
+                  <Text style={styles.eventDetail}>📍 Venue: {event.venue}</Text>
+                  <Text style={styles.eventDetail}>📅 Date: {new Date(event.date).toLocaleDateString()}</Text>
+                  
+                  <TouchableOpacity 
+                    style={styles.eventBtn}
+                    onPress={() => handleRegisterEvent(event._id)}
+                  >
+                    <Text style={styles.eventBtnText}>Register Now</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* 2. Activities View */}
+        {activeTab === 'activities' && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.actHeaderRow}>
+              <Text style={styles.sectionHeader}>Logged Activities</Text>
+              <TouchableOpacity 
+                style={styles.addActBtn}
+                onPress={() => setShowLogForm(!showLogForm)}
+              >
+                <Text style={styles.addActBtnText}>{showLogForm ? 'Close Form' : '+ Log New'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Log Activity Form */}
+            {showLogForm && (
+              <View style={styles.logFormCard}>
+                <Text style={styles.logFormTitle}>Log Achievement / Activity</Text>
+                
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Activity Title (e.g. Smart India Hackathon)"
+                  value={actTitle}
+                  onChangeText={setActTitle}
                 />
-              </ThemedView>
-            </Pressable>
-          </ExternalLink>
-        </ThemedView>
 
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+                <View style={styles.typeSelectorRow}>
+                  {['certification', 'hackathon', 'sports'].map((type) => (
+                    <TouchableOpacity 
+                      key={type}
+                      style={[styles.typeBtn, actType === type && styles.typeBtnActive]}
+                      onPress={() => setActType(type)}
+                    >
+                      <Text style={[styles.typeBtnText, actType === type && styles.typeBtnTextActive]}>
+                        {type}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                source={require('@/assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
+                <TextInput 
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Activity Details / Description"
+                  value={actDesc}
+                  onChangeText={setActDesc}
+                  multiline
+                  numberOfLines={2}
+                />
 
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Date Completed (YYYY-MM-DD)"
+                  value={actDate}
+                  onChangeText={setActDate}
+                />
 
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+                <TouchableOpacity style={styles.submitActBtn} onPress={handleLogActivity}>
+                  <Text style={styles.submitActBtnText}>Submit Achievement</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
-    </ScrollView>
+            {/* Activities List */}
+            {activities.length === 0 ? (
+              <Text style={styles.emptyText}>You haven't logged any activities yet.</Text>
+            ) : (
+              activities.map((act) => (
+                <View key={act._id} style={styles.actCard}>
+                  <View style={styles.actHeader}>
+                    <Text style={styles.actTitle}>{act.title}</Text>
+                    <View style={[
+                      styles.statusBadge, 
+                      act.verificationStatus === 'verified' && styles.statusVerified,
+                      act.verificationStatus === 'rejected' && styles.statusRejected
+                    ]}>
+                      <Text style={styles.statusText}>{act.verificationStatus}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.actDesc}>{act.description}</Text>
+                  <View style={styles.actFooter}>
+                    <Text style={styles.actType}>Category: {act.type}</Text>
+                    {act.verificationStatus === 'verified' && (
+                      <Text style={styles.actPoints}>🏆 Awarded: {act.pointsAwarded} pts</Text>
+                    )}
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
-  },
-  contentContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
   container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
+    flex: 1,
+    backgroundColor: '#F3F4F6',
   },
-  titleContainer: {
-    gap: Spacing.three,
-    alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
-  },
-  centerText: {
-    textAlign: 'center',
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  linkButton: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
+  centerContainer: {
+    flex: 1,
     justifyContent: 'center',
-    gap: Spacing.one,
+    alignItems: 'center',
+    padding: Spacing.six,
+    backgroundColor: '#F3F4F6',
+  },
+  warnTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#EF4444',
+    marginBottom: 8,
+  },
+  warnText: {
+    fontSize: 14,
+    color: '#4B5563',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  tabToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  toggleBtn: {
+    flex: 1,
+    paddingVertical: 14,
     alignItems: 'center',
   },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
+  toggleBtnActive: {
+    borderBottomWidth: 3,
+    borderBottomColor: '#1F2937',
   },
-  collapsibleContent: {
-    alignItems: 'center',
+  toggleBtnText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#6B7280',
   },
-  imageTutorial: {
+  toggleBtnTextActive: {
+    color: '#1F2937',
+    fontWeight: 'bold',
+  },
+  loader: {
+    marginTop: 12,
+  },
+  scrollContent: {
+    padding: Spacing.four,
+  },
+  sectionContainer: {
     width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
   },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
+  sectionHeader: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: Spacing.three,
   },
+  emptyText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  // Event card
+  eventCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    padding: Spacing.three,
+    marginBottom: Spacing.three,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  eventTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  eventDesc: {
+    fontSize: 14,
+    color: '#4B5563',
+    marginVertical: 6,
+  },
+  eventDetail: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  eventBtn: {
+    backgroundColor: '#1F2937',
+    borderRadius: 6,
+    paddingVertical: 8,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  eventBtnText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // Activity Styles
+  actHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.three,
+  },
+  addActBtn: {
+    backgroundColor: '#374151',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  addActBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  logFormCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    padding: Spacing.three,
+    marginBottom: Spacing.four,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  logFormTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 10,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 14,
+    marginBottom: 8,
+    color: '#000',
+  },
+  textArea: {
+    height: 50,
+    textAlignVertical: 'top',
+  },
+  typeSelectorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  typeBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    paddingVertical: 6,
+    alignItems: 'center',
+    marginHorizontal: 2,
+  },
+  typeBtnActive: {
+    backgroundColor: '#374151',
+    borderColor: '#374151',
+  },
+  typeBtnText: {
+    fontSize: 12,
+    color: '#4B5563',
+  },
+  typeBtnTextActive: {
+    color: '#FFF',
+    fontWeight: 'bold',
+  },
+  submitActBtn: {
+    backgroundColor: '#10B981', // green-500
+    borderRadius: 6,
+    padding: 10,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  submitActBtnText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // Act Card
+  actCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    padding: Spacing.three,
+    marginBottom: Spacing.three,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  actHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  actTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#111827',
+    flex: 1,
+    marginRight: 8,
+  },
+  actDesc: {
+    fontSize: 13,
+    color: '#4B5563',
+    marginVertical: 4,
+  },
+  actFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  actType: {
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
+  actPoints: {
+    fontSize: 12,
+    color: '#10B981',
+    fontWeight: 'bold',
+  },
+  statusBadge: {
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: '#F3F4F6', // grey
+  },
+  statusVerified: {
+    backgroundColor: '#D1FAE5', // light green
+  },
+  statusRejected: {
+    backgroundColor: '#FEE2E2', // light red
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    color: '#374151',
+  }
 });
