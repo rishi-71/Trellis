@@ -6,29 +6,34 @@ const StudentProfileSchema = new mongoose.Schema({
   rollNumber: { type: String, required: true, unique: true },
   branch: { type: String, required: true },
   graduationYear: { type: Number, required: true },
+  semester: { type: Number, default: 1 },
   cgpa: { type: Number, default: 0.0 },
-  backlogs: { type: Number, default: 0 },
   bio: { type: String, default: "" },
   photoUrl: { type: String, default: "" },
+  contact: { type: String, default: "" },
   skills: [{ type: String }],
   projects: [{
     title: { type: String, required: true },
     description: String,
-    githubLink: String,
-    liveLink: String
+    techStack: String,
+    link: String
   }],
-  internships: [{
-    company: { type: String, required: true },
-    role: String,
-    startDate: Date,
-    endDate: Date,
+  certifications: [{
+    name: { type: String, required: true },
+    issuer: String,
+    date: Date,
+    proofUrl: String
+  }],
+  experience: [{
+    title: { type: String, required: true },
+    org: String,
+    duration: String,
     description: String
   }],
-  resumeUrl: { type: String, default: "" },
-  socialLinks: {
-    github: String,
-    linkedin: String
-  }
+  profileCompletionPercent: { type: Number, default: 0 },
+  totalPoints: { type: Number, default: 0 },
+  talentTags: [{ type: String }],
+  profileViewCount: { type: Number, default: 0 }
 }, { timestamps: true });
 
 module.exports = mongoose.model("StudentProfile", StudentProfileSchema);
