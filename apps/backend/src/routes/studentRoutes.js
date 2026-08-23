@@ -9,6 +9,7 @@ router.post("/profile", verifyToken, verifyStudent, studentController.createProf
 router.put("/profile", verifyToken, verifyStudent, studentController.updateProfile);
 
 // Public endpoints (accessible to logged-in users of any role)
+router.get("/", verifyToken, studentController.getAllStudents);
 router.get("/profile/:rollNumber", verifyToken, studentController.getPublicProfile);
 
 module.exports = router;

@@ -1,4 +1,15 @@
 const StudentProfile = require("../models/StudentProfile");
+const User = require("../models/User");
+
+// Get all student users
+exports.getAllStudents = async (req, res) => {
+  try {
+    const students = await User.find({ role: "student" }).select("email role");
+    res.json({ success: true, students });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 // Get current student's profile
 exports.getMyProfile = async (req, res) => {

@@ -15,6 +15,8 @@ const eventRoutes = require("./routes/eventRoutes");
 const activityRoutes = require("./routes/activityRoutes");
 const noticeRoutes = require("./routes/noticeRoutes");
 const complaintRoutes = require("./routes/complaintRoutes");
+const campusRoutes = require("./routes/campusRoutes");
+const placementRoutes = require("./routes/placementRoutes");
 
 // Database connection
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/trellis";
@@ -29,6 +31,58 @@ app.use("/api/events", eventRoutes);
 app.use("/api/activities", activityRoutes);
 app.use("/api/notices", noticeRoutes);
 app.use("/api/complaints", complaintRoutes);
+app.use("/api", campusRoutes);
+app.use("/api/placement", placementRoutes);
+
+// Mount M7 Sensor Issuing System routes
+const sensorRoutes = require("./routes/sensorRoutes");
+app.use("/api/sensors-module", sensorRoutes);
+
+// Automatic Background PDF Generation for Passed Deadlines
+const JobPosting = require("./models/JobPosting");
+const AdminReport = require("./models/AdminReport");
+const placementController = require("./controllers/placementController");
+
+setInterval(async () => {
+  try {
+    const passedJobs = await JobPosting.find({
+      applicationDeadline: { $lte: new Date() }
+    });
+
+    for (const job of passedJobs) {
+      const reportExists = await AdminReport.findOne({ jobPostingId: job._id });
+      if (!reportExists) {
+        console.log(`Auto-generating post-deadline PDF report for company: ${job.companyName}`);
+        const mockReq = { params: { id: job._id.toString() } };
+        const mockRes = {
+          status: () => mockRes,
+          json: (data) => console.log(`Auto-report status details: ${JSON.stringify(data)}`)
+        };
+        await placementController.generatePostDeadlineReport(mockReq, mockRes);
+      }
+    }
+  } catch (err) {
+    console.error("Auto deadline checker routine failed:", err);
+  }
+}, 60000);
+
+// M7 Overdue Sensor Request Checker Loop (runs every 60 seconds)
+const SensorRequest = require("./models/SensorRequest");
+setInterval(async () => {
+  try {
+    const overdueRequests = await SensorRequest.find({
+      status: "issued",
+      dueAt: { $lt: new Date() }
+    });
+    for (const reqObj of overdueRequests) {
+      reqObj.status = "overdue";
+      await reqObj.save();
+      console.log(`[M7] Auto-marked SensorRequest ${reqObj._id} as overdue (dueAt was ${reqObj.dueAt})`);
+    }
+  } catch (err) {
+    console.error("M7 background overdue checker routine failed:", err);
+  }
+}, 60000);
 
 
 app.get("/api/health", (req, res) => {
