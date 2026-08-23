@@ -3,7 +3,7 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  --primary-orange: #f97316;
+  --primary-orange: #10b981;
 }
 
 @theme inline {
@@ -75,12 +75,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(249, 115, 22, 0.4);
+  background: rgba(16, 185, 129, 0.4);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(249, 115, 22, 0.6);
+  background: rgba(16, 185, 129, 0.6);
 }
 
 /* ======================================================================

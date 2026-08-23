@@ -38,22 +38,7 @@ export default function ExploreScreen() {
     });
     return unsubscribe;
   }, []);
-
-  // Fetch data when token or IP changes
-  useEffect(() => {
-    if (token) {
-      fetchEvents();
-      fetchActivities();
-    } else {
-      setEvents([]);
-      setActivities([]);
-    }
-  }, [token, ipAddress]);
-
-  const backendUrl = globalState.backendUrl;
-
   const fetchEvents = async () => {
-    setLoading(true);
     try {
       const response = await fetch(`${backendUrl}/api/events`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -64,13 +49,10 @@ export default function ExploreScreen() {
       }
     } catch (err: any) {
       console.log('Error fetching events:', err.message);
-    } finally {
-      setLoading(false);
     }
   };
 
   const fetchActivities = async () => {
-    setLoading(true);
     try {
       const response = await fetch(`${backendUrl}/api/activities/my`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -81,10 +63,26 @@ export default function ExploreScreen() {
       }
     } catch (err: any) {
       console.log('Error fetching activities:', err.message);
-    } finally {
-      setLoading(false);
     }
   };
+
+  // Fetch data when token or IP changes
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (token) {
+        fetchEvents();
+        fetchActivities();
+      } else {
+        setEvents([]);
+        setActivities([]);
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [token, ipAddress]);
+
+  const backendUrl = globalState.backendUrl;
+
+
 
   const handleRegisterEvent = async (eventId: string) => {
     setLoading(true);
@@ -269,7 +267,7 @@ export default function ExploreScreen() {
 
             {/* Activities List */}
             {activities.length === 0 ? (
-              <Text style={styles.emptyText}>You haven't logged any activities yet.</Text>
+              <Text style={styles.emptyText}>You haven{"'"}t logged any activities yet.</Text>
             ) : (
               activities.map((act) => (
                 <View key={act._id} style={styles.actCard}>
@@ -303,14 +301,14 @@ export default function ExploreScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F4FBF7',
   },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: Spacing.six,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F4FBF7',
   },
   warnTitle: {
     fontSize: 20,
@@ -320,7 +318,7 @@ const styles = StyleSheet.create({
   },
   warnText: {
     fontSize: 14,
-    color: '#4B5563',
+    color: '#374151',
     textAlign: 'center',
     lineHeight: 20,
   },
@@ -328,7 +326,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#A7F3D0',
   },
   toggleBtn: {
     flex: 1,
@@ -337,15 +335,15 @@ const styles = StyleSheet.create({
   },
   toggleBtnActive: {
     borderBottomWidth: 3,
-    borderBottomColor: '#1F2937',
+    borderBottomColor: '#10B981',
   },
   toggleBtnText: {
     fontSize: 15,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#059669',
   },
   toggleBtnTextActive: {
-    color: '#1F2937',
+    color: '#10B981',
     fontWeight: 'bold',
   },
   loader: {
@@ -360,12 +358,12 @@ const styles = StyleSheet.create({
   sectionHeader: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#064E3B',
     marginBottom: Spacing.three,
   },
   emptyText: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#059669',
     fontStyle: 'italic',
     textAlign: 'center',
     marginTop: 20,
@@ -377,25 +375,25 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     marginBottom: Spacing.three,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E6F4EA',
   },
   eventTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#064E3B',
   },
   eventDesc: {
     fontSize: 14,
-    color: '#4B5563',
+    color: '#374151',
     marginVertical: 6,
   },
   eventDetail: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#059669',
     marginTop: 2,
   },
   eventBtn: {
-    backgroundColor: '#1F2937',
+    backgroundColor: '#10B981',
     borderRadius: 6,
     paddingVertical: 8,
     alignItems: 'center',
@@ -414,7 +412,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.three,
   },
   addActBtn: {
-    backgroundColor: '#374151',
+    backgroundColor: '#064E3B',
     borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -430,17 +428,17 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     marginBottom: Spacing.four,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E6F4EA',
   },
   logFormTitle: {
     fontSize: 15,
     fontWeight: 'bold',
-    color: '#1F2937',
+    color: '#10B981',
     marginBottom: 10,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#A7F3D0',
     borderRadius: 6,
     padding: 8,
     fontSize: 14,
@@ -459,19 +457,19 @@ const styles = StyleSheet.create({
   typeBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#A7F3D0',
     borderRadius: 6,
     paddingVertical: 6,
     alignItems: 'center',
     marginHorizontal: 2,
   },
   typeBtnActive: {
-    backgroundColor: '#374151',
+    backgroundColor: '#064E3B',
     borderColor: '#374151',
   },
   typeBtnText: {
     fontSize: 12,
-    color: '#4B5563',
+    color: '#374151',
   },
   typeBtnTextActive: {
     color: '#FFF',
@@ -496,7 +494,7 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     marginBottom: Spacing.three,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E6F4EA',
   },
   actHeader: {
     flexDirection: 'row',
@@ -506,13 +504,13 @@ const styles = StyleSheet.create({
   actTitle: {
     fontSize: 15,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#064E3B',
     flex: 1,
     marginRight: 8,
   },
   actDesc: {
     fontSize: 13,
-    color: '#4B5563',
+    color: '#374151',
     marginVertical: 4,
   },
   actFooter: {
@@ -523,7 +521,7 @@ const styles = StyleSheet.create({
   },
   actType: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#059669',
   },
   actPoints: {
     fontSize: 12,
@@ -534,7 +532,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 2,
-    backgroundColor: '#F3F4F6', // grey
+    backgroundColor: '#F4FBF7', // grey
   },
   statusVerified: {
     backgroundColor: '#D1FAE5', // light green

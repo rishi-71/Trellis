@@ -46,14 +46,41 @@ export default function ProfileScreen() {
     return unsubscribe;
   }, []);
 
+  // Fetch Student Profile
+  const fetchProfile = async (authToken: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${backendUrl}/api/students/profile`, {
+        method: 'GET',
+        headers: { 
+          'Authorization': `Bearer ${authToken}`
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        setProfile(data.profile);
+        setHasProfile(true);
+      } else {
+        setHasProfile(false);
+      }
+    } catch (err: any) {
+      console.log('Error fetching profile:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Fetch profile when token changes
   useEffect(() => {
-    if (token) {
-      fetchProfile(token);
-    } else {
-      setProfile(null);
-      setHasProfile(false);
-    }
+    const t = setTimeout(() => {
+      if (token) {
+        fetchProfile(token);
+      } else {
+        setProfile(null);
+        setHasProfile(false);
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, [token, ipAddress]);
 
   const updateIp = (ip: string) => {
@@ -116,29 +143,7 @@ export default function ProfileScreen() {
     }
   };
 
-  // Fetch Student Profile
-  const fetchProfile = async (authToken: string) => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${backendUrl}/api/students/profile`, {
-        method: 'GET',
-        headers: { 
-          'Authorization': `Bearer ${authToken}`
-        },
-      });
-      const data = await response.json();
-      if (data.success) {
-        setProfile(data.profile);
-        setHasProfile(true);
-      } else {
-        setHasProfile(false);
-      }
-    } catch (err: any) {
-      console.log('Error fetching profile:', err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   // Create Profile handler
   const handleCreateProfile = async () => {
@@ -381,7 +386,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F4FBF7',
   },
   scrollContainer: {
     padding: Spacing.four,
@@ -394,17 +399,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: Spacing.four,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#A7F3D0',
   },
   ipLabel: {
     fontWeight: 'bold',
     fontSize: 14,
-    color: '#374151',
+    color: '#064E3B',
     marginBottom: 4,
   },
   ipInput: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#A7F3D0',
     borderRadius: 6,
     padding: 8,
     fontSize: 16,
@@ -412,7 +417,7 @@ const styles = StyleSheet.create({
   },
   ipSub: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#059669',
     marginTop: 4,
   },
   loader: {
@@ -432,19 +437,19 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#064E3B',
     marginBottom: Spacing.one,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#059669',
     marginBottom: Spacing.four,
     textAlign: 'center',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#A7F3D0',
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
@@ -456,7 +461,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   button: {
-    backgroundColor: '#1F2937',
+    backgroundColor: '#10B981',
     borderRadius: 8,
     padding: 14,
     alignItems: 'center',
@@ -507,7 +512,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E6F4EA',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing.three,
@@ -515,26 +520,26 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#4B5563',
+    color: '#064E3B',
   },
   profileName: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#064E3B',
   },
   profileRoll: {
     fontSize: 16,
-    color: '#4B5563',
+    color: '#059669',
     marginTop: 4,
   },
   profileGrad: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#059669',
     marginTop: 2,
   },
   divider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E6F4EA',
     marginVertical: Spacing.four,
   },
   section: {
@@ -543,12 +548,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1F2937',
+    color: '#064E3B',
     marginBottom: Spacing.two,
   },
   bioText: {
     fontSize: 15,
-    color: '#4B5563',
+    color: '#374151',
     lineHeight: 22,
   },
   statsRow: {
@@ -559,21 +564,21 @@ const styles = StyleSheet.create({
   },
   statBox: {
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FFF',
     padding: Spacing.three,
     borderRadius: 8,
     width: '40%',
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: '#E6F4EA',
   },
   statVal: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#064E3B',
   },
   statLbl: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#059669',
     marginTop: 2,
   },
   skillsContainer: {
@@ -582,7 +587,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one,
   },
   skillBadge: {
-    backgroundColor: '#EEF2F6',
+    backgroundColor: '#E6F4EA',
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -591,7 +596,7 @@ const styles = StyleSheet.create({
   },
   skillBadgeText: {
     fontSize: 13,
-    color: '#4B5563',
+    color: '#064E3B',
     fontWeight: '500',
   },
   emptyText: {
