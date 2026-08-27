@@ -14,8 +14,16 @@ const Endorsement = require("../models/Endorsement");
 const Follow = require("../models/Follow");
 const ActivityFeedPost = require("../models/ActivityFeedPost");
 const FacultyRecommendation = require("../models/FacultyRecommendation");
-const PointsConfig = require("../models/PointsConfig");
 const User = require("../models/User");
+const cloudinary = require("cloudinary").v2;
+const stream = require("stream");
+const PDFDocument = require("pdfkit");
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "ips_academy_cloud",
+  api_key: process.env.CLOUDINARY_API_KEY || "ips_api_key",
+  api_secret: process.env.CLOUDINARY_API_SECRET || "ips_api_secret"
+});
 
 // -------------------------------------------------------------
 // M1: CAMPUS FINDER
@@ -226,53 +234,7 @@ exports.applyToJob = async (req, res) => {
   }
 };
 
-// -------------------------------------------------------------
-// M5: STUDENT OF THE YEAR & LEADERBOARD
-// -------------------------------------------------------------
-exports.getLeaderboard = async (req, res) => {
-  try {
-    const { branch, year, category, scope } = req.query;
-    
-    let filter = {};
-    if (branch) filter.branch = branch;
-    if (year) filter.graduationYear = parseInt(year);
-    
-    let profiles = await StudentProfile.find(filter).populate("user", "email").sort({ totalPoints: -1 });
-    
-    if (scope === "category" && category) {
-      const achievements = await Achievement.find({ category, status: "verified" });
-      const studentPointsMap = new Map();
-      achievements.forEach(ach => {
-        const sid = ach.studentId.toString();
-        studentPointsMap.set(sid, (studentPointsMap.get(sid) || 0) + ach.pointsAwarded);
-      });
-      
-      profiles = profiles.map(p => {
-        const pObj = p.toObject();
-        pObj.categoryPoints = studentPointsMap.get(p._id.toString()) || 0;
-        return pObj;
-      }).filter(p => p.categoryPoints > 0)
-        .sort((a, b) => b.categoryPoints - a.categoryPoints);
-    }
-
-    const leaderboard = profiles.map((p, index) => ({
-      rank: index + 1,
-      studentId: p._id,
-      name: p.name,
-      rollNumber: p.rollNumber,
-      branch: p.branch,
-      graduationYear: p.graduationYear,
-      semester: p.semester,
-      points: p.categoryPoints !== undefined ? p.categoryPoints : p.totalPoints,
-      talentTags: p.talentTags,
-      badge: index === 0 ? "Student of the Year" : index === 1 ? "Top Runner-Up" : null
-    }));
-
-    res.json({ success: true, leaderboard });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
+// Deprecated M5 points-based Leaderboard removed in strict cleansing
 
 // -------------------------------------------------------------
 // M6: CAMPUS SECURITY & SOS
@@ -660,6 +622,124 @@ exports.getProfile = async (req, res) => {
   }
 };
 
+// Helper: Upload base64 profile cover/DP to Cloudinary or fall back to local file storage
+const uploadBase64ImageToCloudinary = async (base64Data, folder, publicId) => {
+  if (base64Data.startsWith("http://") || base64Data.startsWith("https://")) {
+    return base64Data;
+  }
+  
+  const matches = base64Data.match(/^data:(image|application)\/([a-zA-Z+]+);base64,/);
+  if (!matches) {
+    throw new Error("Invalid file format. Must be a valid base64 image or PDF string.");
+  }
+  
+  const ext = matches[2].toLowerCase();
+  if (!["jpeg", "jpg", "png", "webp", "pdf"].includes(ext)) {
+    throw new Error("Invalid file type. Allowed formats: JPG, JPEG, PNG, WEBP, PDF");
+  }
+
+  const sizeInBytes = base64Data.length * 0.75;
+  if (sizeInBytes > 5 * 1024 * 1024) {
+    throw new Error("File size exceeds the 5MB limit.");
+  }
+
+  const hasCloudinary = process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET;
+  
+  if (hasCloudinary) {
+    try {
+      const result = await cloudinary.uploader.upload(base64Data, {
+        resource_type: "image",
+        folder: folder,
+        public_id: `${publicId}_${Date.now()}`
+      });
+      return result.secure_url;
+    } catch (err) {
+      console.warn("Cloudinary upload failed, using local fallback:", err.message);
+    }
+  }
+
+  // Fallback: Local static storage
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const base64Content = base64Data.replace(/^data:image\/[a-zA-Z+]+;base64,/, "");
+    const buffer = Buffer.from(base64Content, "base64");
+    
+    const dir = path.join(process.cwd(), "public/uploads");
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
+    const fileName = `${publicId}_${Date.now()}.${ext}`;
+    const filePath = path.join(dir, fileName);
+    
+    fs.writeFileSync(filePath, buffer);
+    return `http://localhost:5000/uploads/${fileName}`;
+  } catch (err) {
+    console.error("Local file uploader fallback failed:", err);
+    throw new Error("Image storage failed.");
+  }
+};
+
+// Helper: Calculate professional career tags based on profile matching rules
+const updateCareerTagsForProfile = async (profileId, session = null) => {
+  const query = StudentProfile.findById(profileId);
+  if (session) query.session(session);
+  const profile = await query;
+  if (!profile) return;
+
+  const skills = (profile.skills || []).map(s => s.toLowerCase());
+  const projects = profile.projects || [];
+  const tags = new Set();
+
+  const hasReact = skills.some(s => s.includes("react") || s.includes("vue") || s.includes("angular") || s.includes("frontend") || s.includes("ui") || s.includes("web dev") || s.includes("javascript") || s.includes("typescript"));
+  const hasFrontendProjects = projects.some(p => {
+    const tech = (p.techStack || "").toLowerCase();
+    const desc = (p.description || "").toLowerCase();
+    return tech.includes("react") || tech.includes("vue") || tech.includes("angular") || tech.includes("html") || tech.includes("css") || tech.includes("javascript") || desc.includes("frontend");
+  });
+  if (hasReact && hasFrontendProjects) {
+    tags.add("Frontend Developer");
+  }
+
+  const hasBackendSkills = skills.some(s => s.includes("node") || s.includes("express") || s.includes("backend") || s.includes("api") || s.includes("mongodb") || s.includes("sql") || s.includes("django") || s.includes("java"));
+  const hasBackendProjects = projects.some(p => {
+    const tech = (p.techStack || "").toLowerCase();
+    const desc = (p.description || "").toLowerCase();
+    return tech.includes("node") || tech.includes("express") || tech.includes("mongodb") || tech.includes("sql") || desc.includes("api") || desc.includes("backend");
+  });
+  if (hasBackendSkills && hasBackendProjects) {
+    tags.add("Backend Developer");
+  }
+
+  const hasMlSkills = skills.some(s => s.includes("python") || s.includes("ml") || s.includes("machine learning") || s.includes("ai") || s.includes("tensorflow") || s.includes("pytorch"));
+  const hasMlProjects = projects.some(p => {
+    const tech = (p.techStack || "").toLowerCase();
+    const desc = (p.description || "").toLowerCase();
+    return tech.includes("python") || tech.includes("tensorflow") || tech.includes("pytorch") || desc.includes("machine learning") || desc.includes("ml");
+  });
+  if (hasMlSkills && hasMlProjects) {
+    tags.add("AI/ML Engineer");
+  }
+
+  const hasDesignSkills = skills.some(s => s.includes("figma") || s.includes("ui/ux") || s.includes("ux") || s.includes("design") || s.includes("adobe") || s.includes("sketch"));
+  if (hasDesignSkills) {
+    tags.add("UI/UX Designer");
+  }
+
+  const hasJava = skills.some(s => s.includes("java") || s.includes("spring"));
+  const hasJavaProjects = projects.some(p => {
+    const tech = (p.techStack || "").toLowerCase();
+    return tech.includes("java") || tech.includes("spring");
+  });
+  if (hasJava && hasJavaProjects) {
+    tags.add("Java Backend Developer");
+  }
+
+  profile.careerTags = Array.from(tags);
+  await profile.save();
+};
+
 exports.updateProfile = async (req, res) => {
   try {
     let { studentId } = req.params;
@@ -669,7 +749,8 @@ exports.updateProfile = async (req, res) => {
     }
     const { 
       name, rollNumber, branch, graduationYear, semester, bio, contact, 
-      skills, projects, certifications, experience, photoUrl 
+      skills, projects, certifications, experience, photoUrl, bannerImage,
+      education, github, linkedin, portfolio, isPublic
     } = req.body;
 
     let profile = await StudentProfile.findOne({ user: studentId });
@@ -685,17 +766,41 @@ exports.updateProfile = async (req, res) => {
     if (semester !== undefined) profile.semester = semester;
     if (bio !== undefined) profile.bio = bio;
     if (contact !== undefined) profile.contact = contact;
+    if (education !== undefined) profile.education = education;
+    if (github !== undefined) profile.github = github;
+    if (linkedin !== undefined) profile.linkedin = linkedin;
+    if (portfolio !== undefined) profile.portfolio = portfolio;
+    if (isPublic !== undefined) profile.isPublic = isPublic;
     if (skills !== undefined) profile.skills = skills;
     if (projects !== undefined) profile.projects = projects;
     if (certifications !== undefined) profile.certifications = certifications;
     if (experience !== undefined) profile.experience = experience;
-    if (photoUrl !== undefined) profile.photoUrl = photoUrl;
+
+    if (photoUrl && photoUrl.startsWith("data:image/")) {
+      profile.photoUrl = await uploadBase64ImageToCloudinary(photoUrl, "profile_photos", `avatar_${studentId}`);
+    } else if (photoUrl !== undefined) {
+      profile.photoUrl = photoUrl;
+    }
+
+    if (bannerImage && bannerImage.startsWith("data:image/")) {
+      profile.bannerImage = await uploadBase64ImageToCloudinary(bannerImage, "profile_banners", `banner_${studentId}`);
+    } else if (bannerImage !== undefined) {
+      profile.bannerImage = bannerImage;
+    }
 
     profile.profileCompletionPercent = calculateCompletionPercent(profile);
     
     await profile.save();
+    await updateCareerTagsForProfile(profile._id);
     res.json({ success: true, profile });
   } catch (err) {
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyValue)[0];
+      return res.status(400).json({ 
+        success: false, 
+        message: `${field === "rollNumber" ? "Roll Number" : "Profile for this user"} is already registered.` 
+      });
+    }
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -738,13 +843,9 @@ exports.getPublicProfileView = async (req, res) => {
 
     const recommendations = await FacultyRecommendation.find({ studentId }).populate("facultyId", "email");
 
-    const allProfiles = await StudentProfile.find({}).sort({ totalPoints: -1 });
-    const rank = allProfiles.findIndex(p => p._id.toString() === studentId) + 1;
-
     res.json({
       success: true,
       profile,
-      rank,
       achievements,
       endorsements,
       followersCount,
@@ -800,7 +901,7 @@ exports.verifyAchievement = async (req, res) => {
   session.startTransaction();
   try {
     const { id } = req.params;
-    const { status, pointsAwarded } = req.body;
+    const { status, rejectionReason } = req.body;
     
     const achievement = await Achievement.findById(id).session(session);
     if (!achievement) {
@@ -815,6 +916,7 @@ exports.verifyAchievement = async (req, res) => {
 
     if (status === "rejected") {
       achievement.status = "rejected";
+      achievement.rejectionReason = rejectionReason || "";
       achievement.verifiedBy = req.user.id;
       achievement.verifiedAt = new Date();
       await achievement.save({ session });
@@ -823,55 +925,21 @@ exports.verifyAchievement = async (req, res) => {
       return res.json({ success: true, achievement });
     }
 
-    let points = pointsAwarded;
-    if (!points) {
-      const config = await PointsConfig.findOne({ 
-        category: achievement.category, 
-        level: achievement.level 
-      }).session(session);
-      
-      if (config) {
-        points = config.points;
-      } else {
-        const defaultTable = {
-          college: 10,
-          state: 25,
-          national: 50,
-          international: 100
-        };
-        points = defaultTable[achievement.level] || 10;
-      }
-    }
-
     achievement.status = "verified";
-    achievement.pointsAwarded = points;
     achievement.verifiedBy = req.user.id;
     achievement.verifiedAt = new Date();
     await achievement.save({ session });
 
     const profile = await StudentProfile.findById(achievement.studentId).session(session);
     if (profile) {
-      profile.totalPoints += points;
-
-      const verifiedAchievements = await Achievement.find({ 
-        studentId: profile._id, 
-        status: "verified" 
-      }).session(session);
-
-      const techCount = verifiedAchievements.filter(a => a.category === "technical").length;
-      const sportsCount = verifiedAchievements.filter(a => a.category === "sports").length;
-
-      const tagsSet = new Set(profile.talentTags || []);
-      if (techCount >= 3) tagsSet.add("Top Coder");
-      if (sportsCount >= 3) tagsSet.add("Sports Achiever");
-      profile.talentTags = Array.from(tagsSet);
-      await profile.save({ session });
+      // Recalculate Career Tags dynamically when new achievements are verified
+      await updateCareerTagsForProfile(profile._id, session);
 
       const post = new ActivityFeedPost({
         studentId: profile._id,
         type: "achievement",
         refId: achievement._id,
-        message: `${profile.name} earned verified achievement: "${achievement.title}" (+${points} pts)`
+        message: `${profile.name} earned verified achievement: "${achievement.title}"`
       });
       await post.save({ session });
     }
@@ -890,6 +958,220 @@ exports.verifyAchievement = async (req, res) => {
 // RESUME PDF GENERATION & SAVED VERSIONS
 // -------------------------------------------------------------
 
+// Helper: Draw Resume PDF using PDFKit programmatically with 3 designs
+const renderResumeWithPdfKit = (profile, achievements, template, customData, res) => {
+  const data = {
+    name: customData?.name || profile.name,
+    branch: customData?.branch || profile.branch,
+    graduationYear: customData?.graduationYear || profile.graduationYear,
+    education: customData?.education || profile.education || "",
+    bio: customData?.bio || profile.bio || "",
+    contact: customData?.contact || profile.contact || "",
+    github: customData?.github || profile.github || "",
+    linkedin: customData?.linkedin || profile.linkedin || "",
+    portfolio: customData?.portfolio || profile.portfolio || "",
+    skills: customData?.skills || profile.skills || [],
+    projects: customData?.projects || profile.projects || [],
+    experience: customData?.experience || profile.experience || [],
+    certifications: customData?.certifications || profile.certifications || [],
+    achievements: achievements || []
+  };
+
+  const doc = new PDFDocument({ size: "A4", margin: 40 });
+  res.setHeader("Content-Disposition", `attachment; filename="resume_${data.name.replace(/\s+/g, "_")}.pdf"`);
+  res.setHeader("Content-Type", "application/pdf");
+  doc.pipe(res);
+
+  if (template === "technical") {
+    doc.fillColor("#0284c7").fontSize(22).text(data.name.toUpperCase(), { lineGap: 4 });
+    doc.fillColor("#4b5563").fontSize(10).text(`${data.branch} • Graduation: ${data.graduationYear} • ${data.contact}`);
+    if (data.github || data.linkedin || data.portfolio) {
+      doc.text(`GitHub: ${data.github} | LinkedIn: ${data.linkedin} | Portfolio: ${data.portfolio}`, { lineGap: 10 });
+    }
+    doc.moveDown(1);
+    
+    doc.fillColor("#1f2937").fontSize(11).text(data.bio, { align: "justify", lineGap: 6 });
+    doc.moveDown(1);
+
+    doc.fillColor("#0284c7").fontSize(13).text("TECHNICAL SKILLS", { underline: true, lineGap: 4 });
+    doc.fillColor("#1f2937").fontSize(11).text(data.skills.join(", "), { lineGap: 10 });
+    doc.moveDown(1);
+
+    doc.fillColor("#0284c7").fontSize(13).text("TECHNICAL PROJECTS", { underline: true, lineGap: 4 });
+    data.projects.forEach(p => {
+      doc.fillColor("#111827").fontSize(11).text(p.title);
+      doc.fillColor("#4b5563").fontSize(9).text(`Tech: ${p.techStack} | Link: ${p.link || "N/A"} | Sem: ${p.semester || ""}`);
+      doc.fillColor("#374151").fontSize(10).text(p.description, { lineGap: 4 });
+      doc.moveDown(0.5);
+    });
+    doc.moveDown(1);
+
+    doc.fillColor("#0284c7").fontSize(13).text("WORK EXPERIENCE", { underline: true, lineGap: 4 });
+    data.experience.forEach(e => {
+      doc.fillColor("#111827").fontSize(11).text(`${e.title} at ${e.org}`);
+      doc.fillColor("#4b5563").fontSize(9).text(`Duration: ${e.duration} | Type: ${e.type || "Internship"} | Sem: ${e.semester || ""}`);
+      doc.fillColor("#374151").fontSize(10).text(e.description, { lineGap: 4 });
+      doc.moveDown(0.5);
+    });
+    doc.moveDown(1);
+
+    doc.fillColor("#0284c7").fontSize(13).text("CERTIFICATIONS & ACHIEVEMENTS", { underline: true, lineGap: 4 });
+    data.certifications.forEach(c => {
+      doc.fillColor("#111827").fontSize(10).text(`• Certified ${c.name} by ${c.issuer} (Sem ${c.semester || ""})`);
+    });
+    data.achievements.forEach(a => {
+      doc.fillColor("#111827").fontSize(10).text(`• Verified Achievement: ${a.title} [${a.category.toUpperCase()} - ${a.level.toUpperCase()} LEVEL] (Sem ${a.semester || ""})`);
+    });
+    
+    doc.moveDown(1);
+    doc.fillColor("#0284c7").fontSize(13).text("EDUCATION", { underline: true, lineGap: 4 });
+    if (data.education && typeof data.education === "object") {
+      const edu = data.education;
+      if (edu.graduation && (edu.graduation.courseBranch || edu.graduation.universityName)) {
+        doc.fillColor("#111827").fontSize(10).text(`Graduation: ${edu.graduation.courseBranch}`);
+        doc.fillColor("#4b5563").fontSize(9).text(`University: ${edu.graduation.universityName} | Sem: ${edu.graduation.currentSemester || "N/A"} | CGPA: ${edu.graduation.currentCgpa || "N/A"}`);
+        doc.moveDown(0.5);
+      }
+      if (edu.twelfth && (edu.twelfth.schoolName || edu.twelfth.percentageOrCgpa)) {
+        doc.fillColor("#111827").fontSize(10).text(`12th Standard: ${edu.twelfth.schoolName} (${edu.twelfth.board || "N/A"})`);
+        doc.fillColor("#4b5563").fontSize(9).text(`Passing Year: ${edu.twelfth.yearOfPassing || "N/A"} | Marks: ${edu.twelfth.percentageOrCgpa}`);
+        doc.moveDown(0.5);
+      }
+      if (edu.tenth && (edu.tenth.schoolName || edu.tenth.percentageOrCgpa)) {
+        doc.fillColor("#111827").fontSize(10).text(`10th Standard: ${edu.tenth.schoolName} (${edu.tenth.board || "N/A"})`);
+        doc.fillColor("#4b5563").fontSize(9).text(`Passing Year: ${edu.tenth.yearOfPassing || "N/A"} | Marks: ${edu.tenth.percentageOrCgpa}`);
+        doc.moveDown(0.5);
+      }
+    }
+
+  } else if (template === "data-analyst") {
+    doc.fillColor("#0f766e").fontSize(24).text(data.name, { lineGap: 4 });
+    doc.fillColor("#4b5563").fontSize(10).text(`${data.branch} | Contact: ${data.contact}`);
+    doc.text(`GitHub: ${data.github} | LinkedIn: ${data.linkedin} | Portfolio: ${data.portfolio}`, { lineGap: 12 });
+    doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor("#cbd5e1").stroke();
+    doc.moveDown(1);
+
+    const startY = doc.y;
+
+    doc.fillColor("#0f766e").fontSize(12).text("KEY SKILLS", 40, startY, { lineGap: 6 });
+    doc.fillColor("#374151").fontSize(10).text(data.skills.join("\n"), { lineGap: 4 });
+    doc.moveDown(2);
+
+    doc.fillColor("#0f766e").fontSize(12).text("CERTIFICATIONS", { lineGap: 6 });
+    data.certifications.forEach(c => {
+      doc.fillColor("#1f2937").fontSize(9).text(`${c.name}\n(${c.issuer}) (Sem ${c.semester || ""})`, { lineGap: 4 });
+      doc.moveDown(0.5);
+    });
+
+    doc.fillColor("#0f766e").fontSize(12).text("SUMMARY", 220, startY, { lineGap: 4 });
+    doc.fillColor("#374151").fontSize(10).text(data.bio, { align: "justify", lineGap: 12 });
+    doc.moveDown(1);
+
+    doc.fillColor("#0f766e").fontSize(12).text("EXPERIENCE", { lineGap: 4 });
+    data.experience.forEach(e => {
+      doc.fillColor("#111827").fontSize(10).text(`${e.title} - ${e.org}`);
+      doc.fillColor("#6b7280").fontSize(8).text(`${e.duration} | Sem: ${e.semester || ""}`);
+      doc.fillColor("#374151").fontSize(9).text(e.description, { lineGap: 6 });
+      doc.moveDown(0.5);
+    });
+    doc.moveDown(1);
+
+    doc.fillColor("#0f766e").fontSize(12).text("ANALYTICAL PROJECTS", { lineGap: 4 });
+    data.projects.forEach(p => {
+      doc.fillColor("#111827").fontSize(10).text(p.title);
+      doc.fillColor("#4b5563").fontSize(8).text(`Tech: ${p.techStack} | Sem: ${p.semester || ""}`);
+      doc.fillColor("#374151").fontSize(9).text(p.description, { lineGap: 6 });
+      doc.moveDown(0.5);
+    });
+    doc.moveDown(1);
+
+    doc.fillColor("#0f766e").fontSize(12).text("VERIFIED ACHIEVEMENTS", 220, doc.y, { lineGap: 4 });
+    data.achievements.forEach(a => {
+      doc.fillColor("#374151").fontSize(9).text(`• ${a.title} (${a.category}) (Sem ${a.semester || ""})`, 220, doc.y, { lineGap: 4 });
+    });
+
+    doc.moveDown(1);
+    doc.fillColor("#0f766e").fontSize(12).text("EDUCATION", 220, doc.y, { lineGap: 4 });
+    if (data.education && typeof data.education === "object") {
+      const edu = data.education;
+      if (edu.graduation && (edu.graduation.courseBranch || edu.graduation.universityName)) {
+        doc.fillColor("#111827").fontSize(10).text(`Graduation: ${edu.graduation.courseBranch}`, 220, doc.y);
+        doc.fillColor("#4b5563").fontSize(8.5).text(`${edu.graduation.universityName} | Sem: ${edu.graduation.currentSemester || "N/A"} | CGPA: ${edu.graduation.currentCgpa || "N/A"}`, 220, doc.y, { lineGap: 4 });
+      }
+      if (edu.twelfth && (edu.twelfth.schoolName || edu.twelfth.percentageOrCgpa)) {
+        doc.fillColor("#111827").fontSize(9.5).text(`12th: ${edu.twelfth.schoolName}`, 220, doc.y);
+        doc.fillColor("#4b5563").fontSize(8.5).text(`${edu.twelfth.board || "N/A"} | Year: ${edu.twelfth.yearOfPassing || "N/A"} | Marks: ${edu.twelfth.percentageOrCgpa}`, 220, doc.y, { lineGap: 4 });
+      }
+      if (edu.tenth && (edu.tenth.schoolName || edu.tenth.percentageOrCgpa)) {
+        doc.fillColor("#111827").fontSize(9.5).text(`10th: ${edu.tenth.schoolName}`, 220, doc.y);
+        doc.fillColor("#4b5563").fontSize(8.5).text(`${edu.tenth.board || "N/A"} | Year: ${edu.tenth.yearOfPassing || "N/A"} | Marks: ${edu.tenth.percentageOrCgpa}`, 220, doc.y, { lineGap: 4 });
+      }
+    }
+
+  } else {
+    doc.fillColor("#18181b").fontSize(26).text(data.name.toUpperCase(), { align: "center", lineGap: 4 });
+    doc.fontSize(10).fillColor("#71717a").text(`${data.branch} • Graduation: ${data.graduationYear} • Contact: ${data.contact}`, { align: "center" });
+    if (data.github || data.linkedin || data.portfolio) {
+      doc.text(`GitHub: ${data.github} | LinkedIn: ${data.linkedin} | Portfolio: ${data.portfolio}`, { align: "center", lineGap: 12 });
+    }
+    doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor("#e4e4e7").stroke();
+    doc.moveDown(1.5);
+
+    doc.fillColor("#18181b").fontSize(11).text(data.bio, { align: "justify", lineGap: 12 });
+    doc.moveDown(1);
+
+    doc.fillColor("#ea580c").fontSize(12).text("SKILLS", { lineGap: 4 });
+    doc.fillColor("#27272a").fontSize(10).text(data.skills.join("  |  "), { lineGap: 12 });
+    doc.moveDown(1);
+
+    doc.fillColor("#ea580c").fontSize(12).text("PROJECTS", { lineGap: 6 });
+    data.projects.forEach(p => {
+      doc.fillColor("#18181b").fontSize(10).text(p.title);
+      doc.fillColor("#71717a").fontSize(8).text(`Tech Stack: ${p.techStack} | Link: ${p.link || "N/A"} | Sem: ${p.semester || ""}`);
+      doc.fillColor("#27272a").fontSize(9).text(p.description, { lineGap: 6 });
+      doc.moveDown(0.5);
+    });
+    doc.moveDown(1);
+
+    doc.fillColor("#ea580c").fontSize(12).text("EXPERIENCE", { lineGap: 6 });
+    data.experience.forEach(e => {
+      doc.fillColor("#18181b").fontSize(10).text(`${e.title} at ${e.org}`);
+      doc.fillColor("#71717a").fontSize(8).text(`Duration: ${e.duration} | Type: ${e.type || "Internship"} | Sem: ${e.semester || ""}`);
+      doc.fillColor("#27272a").fontSize(9).text(e.description, { lineGap: 6 });
+      doc.moveDown(0.5);
+    });
+    doc.moveDown(1);
+
+    doc.fillColor("#ea580c").fontSize(12).text("CERTIFICATIONS & ACHIEVEMENTS", { lineGap: 6 });
+    data.certifications.forEach(c => {
+      doc.fillColor("#27272a").fontSize(9).text(`• Certified ${c.name} by ${c.issuer} (Sem ${c.semester || ""})`, { lineGap: 4 });
+    });
+    data.achievements.forEach(a => {
+      doc.fillColor("#27272a").fontSize(9).text(`• Verified Achievement: ${a.title} (${a.category} - ${a.level} Level) (Sem ${a.semester || ""})`, { lineGap: 4 });
+    });
+
+    doc.moveDown(1);
+    doc.fillColor("#ea580c").fontSize(12).text("EDUCATION", { lineGap: 6 });
+    if (data.education && typeof data.education === "object") {
+      const edu = data.education;
+      if (edu.graduation && (edu.graduation.courseBranch || edu.graduation.universityName)) {
+        doc.fillColor("#18181b").fontSize(10).text(`Graduation Course/Branch: ${edu.graduation.courseBranch}`);
+        doc.fillColor("#71717a").fontSize(8.5).text(`University: ${edu.graduation.universityName} | Sem: ${edu.graduation.currentSemester || "N/A"} | CGPA: ${edu.graduation.currentCgpa || "N/A"}`, { lineGap: 4 });
+      }
+      if (edu.twelfth && (edu.twelfth.schoolName || edu.twelfth.percentageOrCgpa)) {
+        doc.fillColor("#18181b").fontSize(9.5).text(`12th: ${edu.twelfth.schoolName} (${edu.twelfth.board || "N/A"})`);
+        doc.fillColor("#71717a").fontSize(8.5).text(`Year: ${edu.twelfth.yearOfPassing || "N/A"} | Marks: ${edu.twelfth.percentageOrCgpa}`, { lineGap: 4 });
+      }
+      if (edu.tenth && (edu.tenth.schoolName || edu.tenth.percentageOrCgpa)) {
+        doc.fillColor("#18181b").fontSize(9.5).text(`10th: ${edu.tenth.schoolName} (${edu.tenth.board || "N/A"})`);
+        doc.fillColor("#71717a").fontSize(8.5).text(`Year: ${edu.tenth.yearOfPassing || "N/A"} | Marks: ${edu.tenth.percentageOrCgpa}`, { lineGap: 4 });
+      }
+    }
+  }
+
+  doc.end();
+};
+
 exports.generateResumePdf = async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -900,63 +1182,10 @@ exports.generateResumePdf = async (req, res) => {
 
     const achievements = await Achievement.find({ studentId, status: "verified" });
 
-    const htmlResume = `
-      <html>
-        <head>
-          <style>
-            body { font-family: sans-serif; padding: 40px; color: #18181b; }
-            h1 { font-size: 28px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
-            .subtitle { font-size: 14px; color: #71717a; margin-bottom: 20px; }
-            .section-title { font-size: 16px; border-bottom: 2px solid #e4e4e7; padding-bottom: 5px; margin-top: 25px; margin-bottom: 10px; font-weight: bold; text-transform: uppercase; color: #ea580c; }
-            .item { margin-bottom: 15px; }
-            .item-title { font-weight: bold; font-size: 13px; }
-            .item-meta { font-size: 11px; color: #a1a1aa; }
-            .item-desc { font-size: 12px; margin-top: 4px; line-height: 1.4; }
-            .skills-list { display: flex; flex-wrap: wrap; gap: 8px; }
-            .skill-badge { background: #f4f4f5; padding: 4px 10px; border-radius: 6px; font-size: 11px; }
-          </style>
-        </head>
-        <body>
-          <h1>${profile.name}</h1>
-          <div class="subtitle">${profile.branch} | Year ${profile.graduationYear - 4}-${profile.graduationYear} | Contact: ${profile.contact || "N/A"}</div>
-          <p style="font-size: 12px; line-height: 1.5;">${profile.bio || ""}</p>
-          
-          <div class="section-title">Skills</div>
-          <div class="skills-list">
-            ${(profile.skills || []).map(s => `<span class="skill-badge">${s}</span>`).join('')}
-          </div>
+    // Supports manual edits snapshot passed via POST request body
+    const customData = req.method === "POST" ? req.body.content : null;
 
-          <div class="section-title">Projects</div>
-          ${(profile.projects || []).map(p => `
-            <div class="item">
-              <div class="item-title">${p.title}</div>
-              <div class="item-meta">Tech: ${p.techStack || ""} | Link: ${p.link || "N/A"}</div>
-              <div class="item-desc">${p.description || ""}</div>
-            </div>
-          `).join('')}
-
-          <div class="section-title">Experience & Internships</div>
-          ${(profile.experience || []).map(exp => `
-            <div class="item">
-              <div class="item-title">${exp.title} - ${exp.org}</div>
-              <div class="item-meta">Duration: ${exp.duration || ""}</div>
-              <div class="item-desc">${exp.description || ""}</div>
-            </div>
-          `).join('')}
-
-          <div class="section-title">Verified Achievements</div>
-          ${achievements.map(a => `
-            <div class="item" style="margin-bottom:8px;">
-              <span class="item-title">${a.title}</span> - <span class="item-meta" style="color:#ea580c; font-weight:bold;">${a.level.toUpperCase()} LEVEL</span>
-              <div class="item-desc" style="margin-top:2px;">${a.description}</div>
-            </div>
-          `).join('')}
-        </body>
-      </html>
-    `;
-
-    res.setHeader("Content-Type", "text/html");
-    res.send(htmlResume);
+    renderResumeWithPdfKit(profile, achievements, template, customData, res);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -1101,13 +1330,26 @@ exports.addFacultyRecommendation = async (req, res) => {
 
 exports.discoverSearch = async (req, res) => {
   try {
-    const { skill } = req.query;
-    if (!skill) return res.status(400).json({ success: false, message: "Missing skill query parameter" });
+    const { skill, branch, year, tag } = req.query;
+    const query = {};
 
-    const profiles = await StudentProfile.find({
-      skills: { $regex: skill, $options: "i" }
-    }).populate("user", "email");
+    if (skill) {
+      query.skills = { $regex: skill, $options: "i" };
+    }
+    if (branch) {
+      query.branch = { $regex: branch, $options: "i" };
+    }
+    if (year) {
+      const parsedYear = parseInt(year);
+      if (!isNaN(parsedYear)) {
+        query.graduationYear = parsedYear;
+      }
+    }
+    if (tag) {
+      query.careerTags = { $regex: tag, $options: "i" };
+    }
 
+    const profiles = await StudentProfile.find(query).populate("user", "email");
     res.json({ success: true, profiles });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -1118,7 +1360,7 @@ exports.discoverTrending = async (req, res) => {
   try {
     const profiles = await StudentProfile.find({})
       .populate("user", "email")
-      .sort({ profileViewCount: -1, totalPoints: -1 })
+      .sort({ profileViewCount: -1 })
       .limit(10);
     res.json({ success: true, profiles });
   } catch (err) {
@@ -1128,12 +1370,12 @@ exports.discoverTrending = async (req, res) => {
 
 exports.discoverRisingStars = async (req, res) => {
   try {
+    const currentYear = new Date().getFullYear();
     const profiles = await StudentProfile.find({
-      graduationYear: { $gte: new Date().getFullYear() + 2 },
-      totalPoints: { $gt: 0 }
+      graduationYear: { $gte: currentYear + 2 }
     })
       .populate("user", "email")
-      .sort({ totalPoints: -1 })
+      .sort({ profileViewCount: -1 })
       .limit(10);
     res.json({ success: true, profiles });
   } catch (err) {
@@ -1148,7 +1390,7 @@ exports.getFacultyDashboard = async (req, res) => {
     if (branch) query.branch = branch;
     if (year) query.graduationYear = parseInt(year);
 
-    let profiles = await StudentProfile.find(query).populate("user", "email").sort({ totalPoints: -1 });
+    let profiles = await StudentProfile.find(query).populate("user", "email").sort({ name: 1 });
     const pendingAchievements = await Achievement.find({ status: "pending" }).populate("studentId");
 
     res.json({
@@ -1156,6 +1398,21 @@ exports.getFacultyDashboard = async (req, res) => {
       students: profiles,
       pendingAchievements
     });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.uploadFileEndpoint = async (req, res) => {
+  try {
+    const { fileData, fileType } = req.body;
+    if (!fileData) return res.status(400).json({ success: false, message: "Missing fileData" });
+    
+    const folder = fileType === "pdf" ? "certificates_pdf" : "certificates_img";
+    const publicId = `cert_${req.user.id}`;
+    
+    const url = await uploadBase64ImageToCloudinary(fileData, folder, publicId);
+    res.json({ success: true, url });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

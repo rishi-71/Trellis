@@ -21,4 +21,9 @@ const EligibilityMatchResultSchema = new mongoose.Schema({
   decidedAt: { type: Date }
 }, { timestamps: true });
 
+// Add database indexes
+EligibilityMatchResultSchema.index({ studentId: 1, jobPostingId: 1 }, { unique: true });
+EligibilityMatchResultSchema.index({ jobPostingId: 1, isEligible: 1 });
+EligibilityMatchResultSchema.index({ jobPostingId: 1, studentDecision: 1 });
+
 module.exports = mongoose.model("EligibilityMatchResult", EligibilityMatchResultSchema);

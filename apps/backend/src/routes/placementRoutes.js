@@ -13,5 +13,6 @@ router.get("/jobs/:id/matches", verifyToken, placementController.getJobMatches);
 router.post("/jobs/:id/decision", verifyToken, placementController.submitStudentDecision);
 router.post("/jobs/:id/acknowledge", verifyToken, placementController.acknowledgeNotification);
 router.get("/jobs/:id/report", verifyToken, placementController.generatePostDeadlineReport);
+router.post("/jobs/:id/run-matching", verifyToken, placementController.runMatchingEngineEndpoint);
 
 module.exports = router;

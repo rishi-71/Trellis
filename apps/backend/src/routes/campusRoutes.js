@@ -16,7 +16,6 @@ router.get("/placements", verifyToken, campusController.getAllJobs);
 router.post("/placements", verifyToken, verifyFacultyOrAdmin, campusController.createJob);
 router.post("/placements/:id/apply", verifyToken, verifyStudent, campusController.applyToJob);
 
-// M5: Leaderboard / Student of the Year
 // M4: Career Profile, Achievements & Social Feed Routes
 router.get("/profile/:studentId", verifyToken, campusController.getProfile);
 router.post("/profile/:studentId", verifyToken, campusController.updateProfile);
@@ -27,9 +26,8 @@ router.post("/achievements", verifyToken, campusController.createAchievement);
 router.get("/achievements/:studentId", verifyToken, campusController.getStudentAchievements);
 router.patch("/achievements/:id/verify", verifyToken, verifyFacultyOrAdmin, campusController.verifyAchievement);
 
-router.get("/leaderboard", verifyToken, campusController.getLeaderboard);
-
 router.get("/resume/:studentId/generate", verifyToken, campusController.generateResumePdf);
+router.post("/resume/:studentId/generate", verifyToken, campusController.generateResumePdf);
 router.post("/resume/:studentId/save", verifyToken, campusController.saveResumeVersion);
 router.get("/resume/:studentId/saved", verifyToken, campusController.getSavedResumes);
 
@@ -37,6 +35,7 @@ router.post("/follow/:studentId", verifyToken, campusController.toggleFollowStud
 router.post("/endorse", verifyToken, campusController.endorseSkill);
 router.get("/feed", verifyToken, campusController.getActivityFeed);
 router.post("/faculty/recommend", verifyToken, verifyFacultyOrAdmin, campusController.addFacultyRecommendation);
+router.post("/upload-file", verifyToken, campusController.uploadFileEndpoint);
 
 router.get("/discover/search", verifyToken, campusController.discoverSearch);
 router.get("/discover/trending", verifyToken, campusController.discoverTrending);

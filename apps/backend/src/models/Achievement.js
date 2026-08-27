@@ -15,12 +15,14 @@ const AchievementSchema = new mongoose.Schema({
   },
   description: { type: String, required: true },
   proofUrl: { type: String },
+  date: { type: Date, default: Date.now },
+  semester: { type: Number },
   status: { 
     type: String, 
     enum: ["pending", "verified", "rejected"], 
     default: "pending" 
   },
-  pointsAwarded: { type: Number, default: 0 },
+  rejectionReason: { type: String },
   verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   verifiedAt: { type: Date }
 }, { timestamps: true });
