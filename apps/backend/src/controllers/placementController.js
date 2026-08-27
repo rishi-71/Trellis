@@ -6,14 +6,53 @@ const EligibilityMatchResult = require("../models/EligibilityMatchResult");
 const AdminReport = require("../models/AdminReport");
 const pdfkit = require("pdfkit");
 const cloudinary = require("cloudinary").v2;
+const fs = require("fs");
+const path = require("path");
 const stream = require("stream");
 
 // Cloudinary config binding
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "ips_academy_cloud",
-  api_key: process.env.CLOUDINARY_API_KEY || "ips_api_key",
-  api_secret: process.env.CLOUDINARY_API_SECRET || "ips_api_secret"
-});
+const hasCloudinary = process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET;
+if (hasCloudinary) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+}
+
+// Helper: Calculate Education Gaps
+const calculateEducationGaps = (academic) => {
+  const tenthYear = parseInt(academic?.tenth?.year);
+  const twelfthYear = parseInt(academic?.twelfth?.year);
+  const gradStartYear = parseInt(academic?.graduation?.startYear);
+  
+  let tenthToTwelfthGap = 0;
+  let twelfthToGraduationGap = 0;
+  
+  if (tenthYear && twelfthYear) {
+    tenthToTwelfthGap = Math.max(0, twelfthYear - tenthYear - 2);
+  }
+  if (twelfthYear && gradStartYear) {
+    twelfthToGraduationGap = Math.max(0, gradStartYear - twelfthYear);
+  }
+  const overallEducationGap = tenthToTwelfthGap + twelfthToGraduationGap;
+
+  return {
+    tenthToTwelfthGap,
+    twelfthToGraduationGap,
+    overallEducationGap
+  };
+};
+
+// Helper: Calculate CGPA
+const calculateCgpa = (sgpaEntries, isRetryAttempt) => {
+  if (!sgpaEntries || sgpaEntries.length === 0) return 0;
+  const maxSemesters = isRetryAttempt ? 4 : 5;
+  const filtered = sgpaEntries.filter(e => e.semester >= 1 && e.semester <= maxSemesters && typeof e.sgpa === "number");
+  if (filtered.length === 0) return 0;
+  const sum = filtered.reduce((acc, curr) => acc + curr.sgpa, 0);
+  return Math.round((sum / filtered.length) * 100) / 100;
+};
 
 // A. STUDENT PLACEMENT REGISTRATION FORM SUBMISSION
 exports.submitRegistration = async (req, res) => {
@@ -40,84 +79,90 @@ exports.submitRegistration = async (req, res) => {
     }
 
     const sem = profile.semester || 1;
-    const { isRetryAttempt, personal, family, identity, academic, documents, internships, isDraft } = req.body;
+    const { isRetryAttempt, personal, family, identity, academic, documents, isDraft } = req.body;
 
-    // timing rules:
-    // sem <= 5: Blocked
-    // sem = 6, non-retry: Allowed
-    // sem >= 7, retry: Allowed
-    // sem >= 7, non-retry: Blocked
+    // Timing Window: Semesters 6, 7, and 8 are allowed. Sem <= 5 is too early. Sem > 8 is too late (4th year ends).
     if (sem <= 5) {
       return res.status(403).json({ 
         success: false, 
-        message: "Placement registration is not yet available. It becomes available only after your 5th semester is fully complete (Semester 6 onwards)." 
+        message: `Placement registration is not available. It becomes available strictly in Semesters 6, 7, and 8. Your current semester is ${sem}.` 
       });
     }
 
-    if (sem >= 7 && !isRetryAttempt) {
+    if (sem > 8) {
       return res.status(403).json({ 
         success: false, 
-        message: "Placement registration window has closed. Late submissions in 4th year are only allowed as a Retry Attempt." 
+        message: `Placement registration is completely blocked. Submissions are not allowed after Semester 8. Your current semester is ${sem}.` 
       });
     }
 
-    // Check existing registration
+    // Check existing registration locking
     let registration = await PlacementRegistration.findOne({ studentId });
     if (registration && registration.status === "locked") {
       return res.status(403).json({ success: false, message: "Registration has already been submitted and locked." });
     }
 
-    // Academic SGPA/CGPA, passport photo, and academic gap verification checks
+    // Verify SGPAs and documents if submitting (not draft)
     if (!isDraft) {
-      if (!identity?.passportPhotoUrl) {
-        return res.status(400).json({ success: false, message: "Passport size photograph upload is required to submit." });
-      }
-
-      const gap = academic?.academicGap;
-      if (gap) {
-        if (gap.tenth?.hasGap && !gap.tenth.duration) {
-          return res.status(400).json({ success: false, message: "Gap duration is required for Tenth Stage since a gap is declared." });
-        }
-        if (gap.twelfth?.hasGap && !gap.twelfth.duration) {
-          return res.status(400).json({ success: false, message: "Gap duration is required for Twelfth Stage since a gap is declared." });
-        }
-        if (gap.ug?.hasGap && !gap.ug.duration) {
-          return res.status(400).json({ success: false, message: "Gap duration is required for UG Stage since a gap is declared." });
-        }
-      }
-
       const requiredSemesters = isRetryAttempt ? 4 : 5;
       const sgpaEntries = academic?.semesterSgpa || [];
       
       for (let i = 1; i <= requiredSemesters; i++) {
         const found = sgpaEntries.find(e => e.semester === i);
-        if (!found || typeof found.sgpa !== "number") {
+        if (!found || typeof found.sgpa !== "number" || isNaN(found.sgpa)) {
           return res.status(400).json({ 
             success: false, 
-            message: `Submission requires SGPA values for Semester 1 to ${requiredSemesters}. Semester ${i} is missing.` 
+            message: `Submission requires valid SGPA values for Semester 1 to ${requiredSemesters}. Semester ${i} is missing.` 
           });
         }
       }
+
+      if (!identity?.photoUrl) {
+        return res.status(400).json({ success: false, message: "Identity photo upload is required to submit." });
+      }
+      if (!documents?.resumeUrl || !documents?.tenthMarksheetUrl || !documents?.twelfthMarksheetUrl) {
+        return res.status(400).json({ success: false, message: "Resume, 10th marksheet, and 12th marksheet uploads are required to submit." });
+      }
+
+      // Detailed Section validations
+      const current = personal?.currentAddress;
+      const permanent = personal?.permanentAddress;
+      if (!current?.addressLine || !current?.city || !current?.state || !current?.pincode) {
+        return res.status(400).json({ success: false, message: "Current address line, city, state, and pincode are required." });
+      }
+      if (!permanent?.addressLine || !permanent?.city || !permanent?.state || !permanent?.pincode) {
+        return res.status(400).json({ success: false, message: "Permanent address line, city, state, and pincode are required." });
+      }
+
+      if (!academic?.tenth?.schoolName || !academic?.twelfth?.schoolName) {
+        return res.status(400).json({ success: false, message: "10th and 12th school names are required." });
+      }
+
+      if (!family?.fatherName || !family?.fatherContact || !family?.motherName || !family?.motherContact) {
+        return res.status(400).json({ success: false, message: "Family details including contact numbers are required." });
+      }
     }
 
-    // Auto-calculate CGPA from SGPA entries
-    let cgpa = 0;
-    if (academic?.semesterSgpa && academic.semesterSgpa.length > 0) {
-      const sum = academic.semesterSgpa.reduce((s, e) => s + (e.sgpa || 0), 0);
-      cgpa = Math.round((sum / academic.semesterSgpa.length) * 100) / 100;
-    }
+    // Server-side derived data calculations
+    const derivedCgpa = calculateCgpa(academic?.semesterSgpa, !!isRetryAttempt);
+    const gaps = calculateEducationGaps(academic);
 
     const payload = {
       studentId,
       personal,
       family,
-      identity,
+      identity: {
+        apaarId: identity?.apaarId || "",
+        photoUrl: identity?.photoUrl || ""
+      },
       academic: {
         ...academic,
-        cgpa
+        cgpa: derivedCgpa,
+        tenthToTwelfthGap: gaps.tenthToTwelfthGap,
+        twelfthToGraduationGap: gaps.twelfthToGraduationGap,
+        overallEducationGap: gaps.overallEducationGap
       },
       documents,
-      internships: internships || [],
       isRetryAttempt: !!isRetryAttempt,
       status: isDraft ? "draft" : "locked",
       submittedAt: isDraft ? null : new Date()
@@ -169,7 +214,7 @@ exports.adminEditRegistration = async (req, res) => {
       return res.status(404).json({ success: false, message: "Registration not found" });
     }
 
-    const edits = req.body; // e.g. { "academic.cgpa": 8.5, "personal.fullName": "Name" }
+    const edits = req.body; // e.g. { "academic.backlogCount": 1, "personal.fullName": "Name" }
     const editLogEntries = [];
 
     // Helper to resolve nested fields and detect modifications
@@ -202,6 +247,16 @@ exports.adminEditRegistration = async (req, res) => {
     }
 
     if (editLogEntries.length > 0) {
+      // Re-calculate derived CGPA and gaps if academic details were edited
+      const academicUpdated = editLogEntries.some(e => e.field.startsWith("academic."));
+      if (academicUpdated) {
+        registration.academic.cgpa = calculateCgpa(registration.academic.semesterSgpa, registration.isRetryAttempt);
+        const gaps = calculateEducationGaps(registration.academic);
+        registration.academic.tenthToTwelfthGap = gaps.tenthToTwelfthGap;
+        registration.academic.twelfthToGraduationGap = gaps.twelfthToGraduationGap;
+        registration.academic.overallEducationGap = gaps.overallEducationGap;
+      }
+
       registration.editLog.push(...editLogEntries);
       await registration.save();
     }
@@ -227,7 +282,7 @@ exports.createJobPosting = async (req, res) => {
     });
     await job.save();
 
-    // Trigger auto eligibility matching automatically on creation for every student
+    // Trigger auto eligibility matching automatically on creation for every student with locked registration
     await runMatchingEngine(job._id);
 
     res.json({ success: true, message: "Job opportunity created and auto-matching completed.", job });
@@ -239,6 +294,16 @@ exports.createJobPosting = async (req, res) => {
 // E. LIST OPPORTUNITIES
 exports.listJobPostings = async (req, res) => {
   try {
+    // If student query parameter is present, return matches with status details
+    const { studentEmail } = req.query;
+    if (studentEmail) {
+      const user = await User.findOne({ email: studentEmail });
+      if (user) {
+        const matches = await EligibilityMatchResult.find({ studentId: user._id }).populate("jobPostingId");
+        return res.json({ success: true, jobs: matches });
+      }
+    }
+
     const jobs = await JobPosting.find({}).sort({ createdAt: -1 });
     res.json({ success: true, jobs });
   } catch (err) {
@@ -261,9 +326,23 @@ exports.getJobMatches = async (req, res) => {
 exports.submitStudentDecision = async (req, res) => {
   try {
     const { id } = req.params; // posting Id
-    const { decision, applicationResume } = req.body; // 'applied' or 'no-apply', base64 or URL
+    const { decision, applicationResume, studentEmail } = req.body; // 'applied' or 'no-apply'
     
     let studentId = req.user.id;
+    if (studentEmail && req.user.role === "admin") {
+      const userObj = await User.findOne({ email: studentEmail });
+      if (userObj) studentId = userObj._id;
+    }
+
+    const job = await JobPosting.findById(id);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job opportunity not found." });
+    }
+
+    // Verify Deadline has not passed
+    if (new Date() > new Date(job.applicationDeadline)) {
+      return res.status(403).json({ success: false, message: "The application deadline for this job posting has passed." });
+    }
 
     const match = await EligibilityMatchResult.findOne({ jobPostingId: id, studentId });
     if (!match) {
@@ -297,7 +376,13 @@ exports.submitStudentDecision = async (req, res) => {
 exports.acknowledgeNotification = async (req, res) => {
   try {
     const { id } = req.params;
+    const { studentEmail } = req.body;
     let studentId = req.user.id;
+
+    if (studentEmail && req.user.role === "admin") {
+      const userObj = await User.findOne({ email: studentEmail });
+      if (userObj) studentId = userObj._id;
+    }
 
     const match = await EligibilityMatchResult.findOne({ jobPostingId: id, studentId });
     if (!match) {
@@ -321,6 +406,12 @@ exports.generatePostDeadlineReport = async (req, res) => {
     const job = await JobPosting.findById(id);
     if (!job) return res.status(404).json({ success: false, message: "Job opportunity not found" });
 
+    // Prevent duplicate report generation
+    const reportExists = await AdminReport.findOne({ jobPostingId: id });
+    if (reportExists) {
+      return res.json({ success: true, message: "Report already generated.", report: reportExists });
+    }
+
     // Fetch applied students
     const matches = await EligibilityMatchResult.find({ 
       jobPostingId: id, 
@@ -328,29 +419,35 @@ exports.generatePostDeadlineReport = async (req, res) => {
     }).populate("studentId");
 
     const studentRegistrations = [];
+    const studentIds = [];
+    
     for (const match of matches) {
       const reg = await PlacementRegistration.findOne({ studentId: match.studentId._id });
-      studentRegistrations.push({
-        userEmail: match.studentId.email,
-        registration: reg
-      });
+      if (reg) {
+        studentRegistrations.push({
+          userEmail: match.studentId.email,
+          registration: reg
+        });
+        studentIds.push(match.studentId._id);
+      }
     }
 
     // Generate PDF buffer
     const pdfBuffer = await generatePdfReportBuffer(job, studentRegistrations);
 
-    // Upload to Cloudinary using upload_stream
+    // Upload to Cloudinary or fallback to local storage
     const secureUrl = await uploadPdfToCloudinary(pdfBuffer, `report_${job._id}`);
 
     // Save AdminReport Document
     const report = new AdminReport({
       jobPostingId: id,
       pdfUrl: secureUrl,
+      studentIds,
       generatedAt: new Date()
     });
     await report.save();
 
-    res.json({ success: true, message: "Post-deadline PDF report compiled and saved to Cloudinary.", report });
+    res.json({ success: true, message: "Post-deadline PDF report compiled successfully.", report });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -368,7 +465,7 @@ function generatePdfReportBuffer(job, studentRegistrations) {
 
       // PDF Page Header
       doc.fontSize(22).fillColor("#18181b").text("IPS ACADEMY, INDORE", { align: "center" });
-      doc.fontSize(11).fillColor("#f97316").text("PLACEMENT CELL REPORT CELL", { align: "center" });
+      doc.fontSize(11).fillColor("#0f766e").text("PLACEMENT CELL REPORT CELL", { align: "center" });
       doc.moveDown(0.5);
       
       doc.strokeColor("#e4e4e7").lineWidth(1).moveTo(40, doc.y).lineTo(570, doc.y).stroke();
@@ -423,45 +520,76 @@ function generatePdfReportBuffer(job, studentRegistrations) {
   });
 }
 
-// Helper: Pipe PDF Buffer directly to Cloudinary upload stream
+// Helper: Pipe PDF Buffer directly to Cloudinary or write locally as fallback
 function uploadPdfToCloudinary(buffer, fileName) {
   return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
-      { 
-        resource_type: "raw", 
-        folder: "placement_reports",
-        public_id: fileName,
-        format: "pdf"
-      },
-      (error, result) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(result.secure_url);
+    if (hasCloudinary) {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { 
+          resource_type: "raw", 
+          folder: "placement_reports",
+          public_id: fileName,
+          format: "pdf"
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result.secure_url);
+          }
         }
+      );
+      stream.Readable.from(buffer).pipe(uploadStream);
+    } else {
+      // Local fallback
+      try {
+        const dir = path.join(process.cwd(), "public/uploads");
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        const filePath = path.join(dir, `${fileName}.pdf`);
+        fs.writeFileSync(filePath, buffer);
+        resolve(`http://localhost:5000/uploads/${fileName}.pdf`);
+      } catch (err) {
+        reject(err);
       }
-    );
-    stream.Readable.from(buffer).pipe(uploadStream);
+    }
   });
 }
 
-// Helper: Upload Base64 PDF to Cloudinary
+// Helper: Upload Base64 PDF to Cloudinary or write locally as fallback
 async function uploadBase64ResumeToCloudinary(base64Data, studentId) {
   try {
-    // If it's already an HTTPS URL, just return it
     if (base64Data.startsWith("http://") || base64Data.startsWith("https://")) {
       return base64Data;
     }
-    const result = await cloudinary.uploader.upload(base64Data, {
-      resource_type: "raw",
-      folder: "placement_resumes",
-      public_id: `resume_${studentId}_${Date.now()}`,
-      format: "pdf"
-    });
-    return result.secure_url;
+    
+    if (hasCloudinary) {
+      const result = await cloudinary.uploader.upload(base64Data, {
+        resource_type: "raw",
+        folder: "placement_resumes",
+        public_id: `resume_${studentId}_${Date.now()}`,
+        format: "pdf"
+      });
+      return result.secure_url;
+    } else {
+      // Local fallback
+      const base64Content = base64Data.replace(/^data:application\/pdf;base64,/, "").replace(/^data:image\/[a-zA-Z+]+;base64,/, "");
+      const buffer = Buffer.from(base64Content, "base64");
+      const dir = path.join(process.cwd(), "public/uploads");
+      
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      
+      const fileName = `resume_${studentId}_${Date.now()}.pdf`;
+      const filePath = path.join(dir, fileName);
+      fs.writeFileSync(filePath, buffer);
+      return `http://localhost:5000/uploads/${fileName}`;
+    }
   } catch (err) {
-    console.error("Cloudinary resume upload failed:", err);
-    throw new Error("Failed to upload resume to Cloudinary: " + err.message);
+    console.error("Cloudinary/Local resume upload failed:", err);
+    throw new Error("Failed to upload resume: " + err.message);
   }
 }
 
@@ -484,14 +612,22 @@ async function runMatchingEngine(jobPostingId) {
         actualValue = reg.academic.cgpa;
       } else if (rule.field === "backlogCount") {
         actualValue = reg.academic.backlogCount;
-      } else if (rule.field === "tenth.percentage") {
+      } else if (rule.field === "tenthPercentage" || rule.field === "tenth.percentage") {
         actualValue = reg.academic.tenth.percentage;
-      } else if (rule.field === "twelfth.percentage") {
+      } else if (rule.field === "twelfthPercentage" || rule.field === "twelfth.percentage") {
         actualValue = reg.academic.twelfth.percentage;
       } else if (rule.field === "branch") {
         actualValue = reg.academic.branch;
+      } else if (rule.field === "twelfthToGraduationGap") {
+        actualValue = reg.academic.twelfthToGraduationGap;
+      } else if (rule.field === "tenthToTwelfthGap") {
+        actualValue = reg.academic.tenthToTwelfthGap;
+      } else if (rule.field === "overallEducationGap") {
+        actualValue = reg.academic.overallEducationGap;
       } else {
-        actualValue = reg.academic[rule.field];
+        // Resolve nested path safely
+        const parts = rule.field.split(".");
+        actualValue = parts.reduce((acc, part) => acc && acc[part], reg.academic);
       }
 
       let rulePassed = false;
@@ -510,32 +646,49 @@ async function runMatchingEngine(jobPostingId) {
         rulePassed = (actualValue < val);
       } else if (op === "in") {
         const arr = Array.isArray(val) ? val : [val];
-        rulePassed = arr.map(s => s.toLowerCase()).includes(actualValue?.toString().toLowerCase());
+        rulePassed = arr.map(s => s.toLowerCase().trim()).includes(actualValue?.toString().toLowerCase().trim());
       }
 
       if (!rulePassed) {
         isEligible = false;
-        let message = `Required ${rule.field} ${op} ${val}, but you have ${actualValue}`;
+        let message = `Required ${rule.field} ${op} ${val}, but actual value is ${actualValue !== undefined ? actualValue : "N/A"}`;
         if (op === "in") {
-          message = `Required ${rule.field} in [${val.join(", ")}], but your branch is ${actualValue}`;
+          const list = Array.isArray(val) ? val.join(", ") : val;
+          message = `Required ${rule.field} in [${list}], but actual value is ${actualValue !== undefined ? actualValue : "N/A"}`;
         }
         failedConditions.push({
           field: rule.field,
           requiredValue: val,
-          actualValue,
+          actualValue: actualValue !== undefined ? actualValue : null,
           message
         });
       }
     }
+
+    // Fetch existing match to prevent duplicate creations
+    const existingMatch = await EligibilityMatchResult.findOne({ studentId, jobPostingId });
+    
+    // Ineligible students are forced to 'not-applicable', eligible are 'pending'
+    const studentDecision = isEligible ? (existingMatch?.studentDecision === "applied" || existingMatch?.studentDecision === "no-apply" ? existingMatch.studentDecision : "pending") : "not-applicable";
 
     await EligibilityMatchResult.findOneAndUpdate(
       { studentId, jobPostingId },
       {
         isEligible,
         failedConditions,
-        studentDecision: isEligible ? "pending" : "not-applicable"
+        studentDecision
       },
       { upsert: true, new: true }
     );
   }
 }
+
+exports.runMatchingEngineEndpoint = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await runMatchingEngine(id);
+    res.json({ success: true, message: "Matching engine executed successfully." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

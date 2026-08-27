@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 const mongoose = require("mongoose");
 const User = require("./src/models/User");
@@ -13,7 +14,7 @@ const defaultUsers = [
 mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log("Connected to MongoDB for seeding default users...");
-    
+
     for (const u of defaultUsers) {
       const exists = await User.findOne({ email: u.email });
       if (exists) {
@@ -28,7 +29,7 @@ mongoose.connect(MONGODB_URI)
         console.log(`Created new user: Email: ${u.email} | Password: ${u.password} | Role: ${u.role}`);
       }
     }
-    
+
     console.log("Seeding completed successfully! You can now log in using these accounts.");
     process.exit(0);
   })

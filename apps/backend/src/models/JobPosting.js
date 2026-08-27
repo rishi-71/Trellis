@@ -15,4 +15,8 @@ const JobPostingSchema = new mongoose.Schema({
   applicationDeadline: { type: Date, required: true }
 }, { timestamps: true });
 
+// Add database indexes
+JobPostingSchema.index({ applicationDeadline: 1 });
+JobPostingSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model("JobPosting", JobPostingSchema);

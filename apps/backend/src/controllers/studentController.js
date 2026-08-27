@@ -27,7 +27,7 @@ exports.getMyProfile = async (req, res) => {
 // Create current student's profile
 exports.createProfile = async (req, res) => {
   try {
-    const { name, rollNumber, branch, graduationYear, cgpa, backlogs, bio, photoUrl, skills, projects, internships, resumeUrl, socialLinks } = req.body;
+    const { name, rollNumber, branch, graduationYear, cgpa, backlogs, bio, photoUrl, skills, projects, internships, resumeUrl, socialLinks, education } = req.body;
     
     // Check if profile already exists
     const existingProfile = await StudentProfile.findOne({ user: req.user.id });
@@ -55,7 +55,8 @@ exports.createProfile = async (req, res) => {
       projects,
       internships,
       resumeUrl,
-      socialLinks
+      socialLinks,
+      education
     });
     
     await profile.save();

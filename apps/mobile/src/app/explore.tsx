@@ -284,9 +284,6 @@ export default function ExploreScreen() {
                   <Text style={styles.actDesc}>{act.description}</Text>
                   <View style={styles.actFooter}>
                     <Text style={styles.actType}>Category: {act.type}</Text>
-                    {act.verificationStatus === 'verified' && (
-                      <Text style={styles.actPoints}>🏆 Awarded: {act.pointsAwarded} pts</Text>
-                    )}
                   </View>
                 </View>
               ))
