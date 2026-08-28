@@ -1417,6 +1417,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F3F4F6',
   },
+  achHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sectionSub: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#064E3B',
+    marginTop: 15,
+    marginBottom: 8,
+  },
   achTitle: {
     fontSize: 12,
     fontWeight: 'bold',
