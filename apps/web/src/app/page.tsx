@@ -19,6 +19,30 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
 
+  const [registerRole, setRegisterRole] = useState<"student" | "faculty">("student");
+  const [fullName, setFullName] = useState("");
+  const [enrollmentNumber, setEnrollmentNumber] = useState("");
+  const [branch, setBranch] = useState("");
+  const [collegeId, setCollegeId] = useState("");
+  const [post, setPost] = useState("");
+  const [year, setYear] = useState("1");
+  const [semester, setSemester] = useState("1");
+  const [facultyDept, setFacultyDept] = useState("");
+
+  const [studentBranch, setStudentBranch] = useState("");
+  const [studentYear, setStudentYear] = useState(1);
+  const [studentSemester, setStudentSemester] = useState(1);
+  const [facultyDepartment, setFacultyDepartment] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setStudentBranch(localStorage.getItem("trellis_student_branch") || "");
+      setStudentYear(parseInt(localStorage.getItem("trellis_student_year") || "1"));
+      setStudentSemester(parseInt(localStorage.getItem("trellis_student_semester") || "1"));
+      setFacultyDepartment(localStorage.getItem("trellis_faculty_dept") || "");
+    }
+  }, [token]);
+
   const [loading, setLoading] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -87,6 +111,44 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoginView) {
+      handleLogin(e);
+    } else {
+      handleRegister(e, registerRole);
+    }
+  };
+
+  const syncUserProfile = async (tk: string) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${tk}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        if (data.user.role === "student" && data.profile) {
+          localStorage.setItem("trellis_student_branch", data.profile.branch || "");
+          localStorage.setItem("trellis_student_year", (data.profile.year || 1).toString());
+          localStorage.setItem("trellis_student_semester", (data.profile.semester || 1).toString());
+          localStorage.removeItem("trellis_faculty_dept");
+        } else if (data.user.role === "faculty" && data.profile) {
+          localStorage.setItem("trellis_faculty_dept", data.profile.department || "");
+          localStorage.removeItem("trellis_student_branch");
+          localStorage.removeItem("trellis_student_year");
+          localStorage.removeItem("trellis_student_semester");
+        } else {
+          localStorage.removeItem("trellis_student_branch");
+          localStorage.removeItem("trellis_student_year");
+          localStorage.removeItem("trellis_student_semester");
+          localStorage.removeItem("trellis_faculty_dept");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to sync user profile:", err);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
@@ -107,6 +169,7 @@ export default function Home() {
         localStorage.setItem("trellis_token", data.token);
         localStorage.setItem("trellis_role", data.user.role);
         localStorage.setItem("trellis_email", data.user.email);
+        await syncUserProfile(data.token);
         setAuthMessage("Logged in successfully!");
         setIsAuthModalOpen(false);
       } else {
@@ -125,11 +188,29 @@ export default function Home() {
     setAuthMessage("");
     setLoading(true);
 
+    const payload: any = {
+      email,
+      password,
+      role: selectedRole,
+      name: fullName
+    };
+
+    if (selectedRole === "student") {
+      payload.enrollmentNumber = enrollmentNumber;
+      payload.branch = branch;
+      payload.year = year;
+      payload.semester = semester;
+    } else if (selectedRole === "faculty") {
+      payload.collegeId = collegeId;
+      payload.post = post;
+      payload.department = facultyDept;
+    }
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role: selectedRole }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (data.success) {
@@ -139,6 +220,7 @@ export default function Home() {
         localStorage.setItem("trellis_token", data.token);
         localStorage.setItem("trellis_role", data.user.role);
         localStorage.setItem("trellis_email", data.user.email);
+        await syncUserProfile(data.token);
         setAuthMessage("Registered successfully!");
         setIsAuthModalOpen(false);
       } else {
@@ -471,8 +553,43 @@ export default function Home() {
                 </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {desktopApps.slice(0, 6).map((app) => (
-                    <Link
+                  {desktopApps
+                    .filter((app) => {
+                      if (userRole === "student") {
+                        if (app.path === "/sensors") {
+                          const branchName = (studentBranch || "").toLowerCase();
+                          const isAllowed =
+                            branchName.includes("electronics") ||
+                            branchName.includes("electrical") ||
+                            branchName.includes("ece") ||
+                            branchName.includes("eee") ||
+                            branchName.includes("ex");
+                          if (!isAllowed) return false;
+                        }
+                        if (app.path === "/placements") {
+                          const isAllowed = studentYear >= 4 || studentSemester >= 7;
+                          if (!isAllowed) return false;
+                        }
+                      } else if (userRole === "faculty") {
+                        if (app.path === "/placements" || app.path === "/complaints") {
+                          return false;
+                        }
+                        if (app.path === "/sensors") {
+                          const deptName = (facultyDepartment || "").toLowerCase();
+                          const isAllowed =
+                            deptName.includes("iot") ||
+                            deptName.includes("electronics") ||
+                            deptName.includes("electrical") ||
+                            deptName.includes("ece") ||
+                            deptName.includes("eee");
+                          if (!isAllowed) return false;
+                        }
+                      }
+                      return true;
+                    })
+                    .slice(0, 6)
+                    .map((app) => (
+                      <Link
                       key={app.name}
                       href={app.path}
                       className="p-4 bg-zinc-50 border border-zinc-200/50 rounded-2xl hover:border-emerald-300 hover:bg-emerald-50/10 transition-all flex items-center gap-4 group"
@@ -542,7 +659,30 @@ export default function Home() {
               </div>
             )}
 
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {!isLoginView && (
+                <div className="flex bg-zinc-100 rounded-xl p-1 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setRegisterRole("student")}
+                    className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition ${
+                      registerRole === "student" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                    }`}
+                  >
+                    Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRegisterRole("faculty")}
+                    className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition ${
+                      registerRole === "faculty" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                    }`}
+                  >
+                    Faculty
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Campus Email</label>
                 <input
@@ -551,7 +691,7 @@ export default function Home() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
-                  placeholder="student@ips.edu"
+                  placeholder="user@ips.edu"
                 />
               </div>
               <div>
@@ -566,29 +706,129 @@ export default function Home() {
                 />
               </div>
 
-              {isLoginView ? (
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow"
-                >
-                  Authorize Workspace
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <button
-                    onClick={(e) => handleRegister(e, "student")}
-                    className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold"
-                  >
-                    Student Reg
-                  </button>
-                  <button
-                    onClick={(e) => handleRegister(e, "faculty")}
-                    className="flex-1 py-3.5 bg-zinc-150 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold"
-                  >
-                    Faculty Reg
-                  </button>
-                </div>
+              {!isLoginView && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                      placeholder="John Doe"
+                    />
+                  </div>
+
+                  {registerRole === "student" ? (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Enrollment Number</label>
+                        <input
+                          type="text"
+                          required
+                          value={enrollmentNumber}
+                          onChange={(e) => setEnrollmentNumber(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="0108CS211000"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Branch</label>
+                        <input
+                          type="text"
+                          required
+                          value={branch}
+                          onChange={(e) => setBranch(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="Computer Science"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Year</label>
+                          <select
+                            required
+                            value={year}
+                            onChange={(e) => setYear(e.target.value)}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none text-zinc-800"
+                          >
+                            <option value="1">1st Year</option>
+                            <option value="2">2nd Year</option>
+                            <option value="3">3rd Year</option>
+                            <option value="4">4th Year</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Semester</label>
+                          <select
+                            required
+                            value={semester}
+                            onChange={(e) => setSemester(e.target.value)}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none text-zinc-800"
+                          >
+                            <option value="1">1st Sem</option>
+                            <option value="2">2nd Sem</option>
+                            <option value="3">3rd Sem</option>
+                            <option value="4">4th Sem</option>
+                            <option value="5">5th Sem</option>
+                            <option value="6">6th Sem</option>
+                            <option value="7">7th Sem</option>
+                            <option value="8">8th Sem</option>
+                          </select>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">College ID</label>
+                        <input
+                          type="text"
+                          required
+                          value={collegeId}
+                          onChange={(e) => setCollegeId(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="FAC1001"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Post</label>
+                        <input
+                          type="text"
+                          required
+                          value={post}
+                          onChange={(e) => setPost(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="Assistant Professor"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Department</label>
+                        <input
+                          type="text"
+                          required
+                          value={facultyDept}
+                          onChange={(e) => setFacultyDept(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="IoT Dept"
+                        />
+                      </div>
+                    </>
+                  )}
+                </>
               )}
+
+              <button
+                type="submit"
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow"
+              >
+                {isLoginView
+                  ? "Authorize Workspace"
+                  : registerRole === "student"
+                  ? "Register Student Account"
+                  : "Register Faculty Account"}
+              </button>
             </form>
 
             <button

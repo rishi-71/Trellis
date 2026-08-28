@@ -1,6 +1,10 @@
 class GlobalState {
   private _token: string | null = null;
   private _ipAddress: string = '127.0.0.1';
+  private _userRole: string | null = null;
+  private _studentBranch: string = '';
+  private _studentYear: number = 1;
+  private _studentSemester: number = 1;
   private _listeners: (() => void)[] = [];
 
   get token() {
@@ -18,6 +22,42 @@ class GlobalState {
 
   setIpAddress(val: string) {
     this._ipAddress = val;
+    this.notify();
+  }
+
+  get userRole() {
+    return this._userRole;
+  }
+
+  setUserRole(val: string | null) {
+    this._userRole = val;
+    this.notify();
+  }
+
+  get studentBranch() {
+    return this._studentBranch;
+  }
+
+  setStudentBranch(val: string) {
+    this._studentBranch = val;
+    this.notify();
+  }
+
+  get studentYear() {
+    return this._studentYear;
+  }
+
+  setStudentYear(val: number) {
+    this._studentYear = val;
+    this.notify();
+  }
+
+  get studentSemester() {
+    return this._studentSemester;
+  }
+
+  setStudentSemester(val: number) {
+    this._studentSemester = val;
     this.notify();
   }
 

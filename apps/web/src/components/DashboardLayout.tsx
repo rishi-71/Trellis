@@ -17,6 +17,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
+  const [studentBranch, setStudentBranch] = useState("");
+  const [studentYear, setStudentYear] = useState(1);
+  const [studentSemester, setStudentSemester] = useState(1);
+  const [facultyDepartment, setFacultyDepartment] = useState("");
+
   useEffect(() => {
     setMounted(true);
     const savedToken = localStorage.getItem("trellis_token");
@@ -29,6 +34,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       setToken(savedToken);
       setUserRole(savedRole);
       setUserEmail(savedEmail);
+      setStudentBranch(localStorage.getItem("trellis_student_branch") || "");
+      setStudentYear(parseInt(localStorage.getItem("trellis_student_year") || "1"));
+      setStudentSemester(parseInt(localStorage.getItem("trellis_student_semester") || "1"));
+      setFacultyDepartment(localStorage.getItem("trellis_faculty_dept") || "");
     }
   }, [router]);
 
@@ -36,6 +45,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     localStorage.removeItem("trellis_token");
     localStorage.removeItem("trellis_role");
     localStorage.removeItem("trellis_email");
+    localStorage.removeItem("trellis_student_branch");
+    localStorage.removeItem("trellis_student_year");
+    localStorage.removeItem("trellis_student_semester");
     router.push("/");
   };
 
@@ -74,8 +86,42 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {menuItems.map((item) => {
-            const isActive = pathname === item.path || (item.path === "/#desktop" && pathname === "/");
+          {menuItems
+            .filter((item) => {
+              if (userRole === "student") {
+                if (item.path === "/sensors") {
+                  const branchName = (studentBranch || "").toLowerCase();
+                  const isAllowed =
+                    branchName.includes("electronics") ||
+                    branchName.includes("electrical") ||
+                    branchName.includes("ece") ||
+                    branchName.includes("eee") ||
+                    branchName.includes("ex");
+                  if (!isAllowed) return false;
+                }
+                if (item.path === "/placements") {
+                  const isAllowed = studentYear >= 4 || studentSemester >= 7;
+                  if (!isAllowed) return false;
+                }
+              } else if (userRole === "faculty") {
+                if (item.path === "/placements" || item.path === "/complaints") {
+                  return false;
+                }
+                if (item.path === "/sensors") {
+                  const deptName = (facultyDepartment || "").toLowerCase();
+                  const isAllowed =
+                    deptName.includes("iot") ||
+                    deptName.includes("electronics") ||
+                    deptName.includes("electrical") ||
+                    deptName.includes("ece") ||
+                    deptName.includes("eee");
+                  if (!isAllowed) return false;
+                }
+              }
+              return true;
+            })
+            .map((item) => {
+              const isActive = pathname === item.path || (item.path === "/#desktop" && pathname === "/");
             return (
               <Link
                 key={item.name}

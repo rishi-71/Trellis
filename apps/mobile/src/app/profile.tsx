@@ -22,6 +22,12 @@ export default function ProfileScreen() {
   const [isLoginView, setIsLoginView] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [registerRole, setRegisterRole] = useState<'student' | 'faculty'>('student');
+  const [collegeId, setCollegeId] = useState('');
+  const [post, setPost] = useState('');
+  const [regYear, setRegYear] = useState('1');
+  const [regSemester, setRegSemester] = useState('1');
+  const [regFacultyDept, setRegFacultyDept] = useState('');
   
   // Profile State
   const [loading, setLoading] = useState(false);
@@ -89,6 +95,40 @@ export default function ProfileScreen() {
 
   const backendUrl = globalState.backendUrl;
 
+  const syncUserProfile = async (tk: string, role: string) => {
+    globalState.setUserRole(role);
+    try {
+      const response = await fetch(`${backendUrl}/api/auth/me`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tk}`
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        if (role === 'student' && data.profile) {
+          globalState.setStudentBranch(data.profile.branch || '');
+          globalState.setStudentYear(data.profile.year || 1);
+          globalState.setStudentSemester(data.profile.semester || 1);
+          setProfile(data.profile);
+          setHasProfile(true);
+        } else if (role === 'faculty' && data.profile) {
+          globalState.setStudentBranch(data.profile.department || '');
+          globalState.setStudentYear(1);
+          globalState.setStudentSemester(1);
+          setProfile(data.profile);
+          setHasProfile(true);
+        } else {
+          globalState.setStudentBranch('');
+          globalState.setStudentYear(1);
+          globalState.setStudentSemester(1);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync profile:', err);
+    }
+  };
+
   // Login handler
   const handleLogin = async () => {
     if (!email || !password) {
@@ -105,6 +145,7 @@ export default function ProfileScreen() {
       const data = await response.json();
       if (data.success) {
         globalState.setToken(data.token);
+        await syncUserProfile(data.token, data.user.role);
         Alert.alert('Success', 'Logged in successfully!');
       } else {
         Alert.alert('Login Failed', data.message || 'Invalid credentials');
@@ -119,19 +160,47 @@ export default function ProfileScreen() {
   // Register handler
   const handleRegister = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Error', 'Please fill in Email and Password');
       return;
     }
+
+    const payload: any = {
+      email,
+      password,
+      role: registerRole,
+      name
+    };
+
+    if (registerRole === 'student') {
+      if (!name || !rollNumber || !branch) {
+        Alert.alert('Error', 'Please fill in Full Name, Enrollment Number, and Branch');
+        return;
+      }
+      payload.enrollmentNumber = rollNumber;
+      payload.branch = branch;
+      payload.year = parseInt(regYear) || 1;
+      payload.semester = parseInt(regSemester) || 1;
+    } else {
+      if (!name || !collegeId || !post || !regFacultyDept) {
+        Alert.alert('Error', 'Please fill in Full Name, College ID, Post, and Department');
+        return;
+      }
+      payload.collegeId = collegeId;
+      payload.post = post;
+      payload.department = regFacultyDept;
+    }
+
     setLoading(true);
     try {
       const response = await fetch(`${backendUrl}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, role: 'student' }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (data.success) {
         globalState.setToken(data.token);
+        await syncUserProfile(data.token, data.user.role);
         Alert.alert('Success', 'Registered successfully!');
       } else {
         Alert.alert('Registration Failed', data.message || 'Something went wrong');
@@ -188,6 +257,10 @@ export default function ProfileScreen() {
   // Logout handler
   const handleLogout = () => {
     globalState.setToken(null);
+    globalState.setUserRole(null);
+    globalState.setStudentBranch('');
+    globalState.setStudentYear(1);
+    globalState.setStudentSemester(1);
     setProfile(null);
     setHasProfile(false);
     setEmail('');
@@ -219,8 +292,25 @@ export default function ProfileScreen() {
         {/* 1. Auth View (Login / Register) */}
         {!token && !loading && (
           <View style={styles.card}>
-            <Text style={styles.title}>{isLoginView ? 'Trellis Student Login' : 'Trellis Student Register'}</Text>
+            <Text style={styles.title}>{isLoginView ? 'Trellis Campus OS Login' : 'Trellis Register Account'}</Text>
             
+            {!isLoginView && (
+              <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 12, padding: 3, marginBottom: 12 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: registerRole === 'student' ? '#FFF' : 'transparent' }}
+                  onPress={() => setRegisterRole('student')}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: registerRole === 'student' ? '#047857' : '#6B7280' }}>Student</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: registerRole === 'faculty' ? '#FFF' : 'transparent' }}
+                  onPress={() => setRegisterRole('faculty')}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: registerRole === 'faculty' ? '#047857' : '#6B7280' }}>Faculty</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <TextInput 
               style={styles.input}
               placeholder="Email"
@@ -238,6 +328,71 @@ export default function ProfileScreen() {
               secureTextEntry
               autoCapitalize="none"
             />
+
+            {!isLoginView && (
+              <TextInput 
+                style={styles.input}
+                placeholder="Full Name *"
+                value={name}
+                onChangeText={setName}
+              />
+            )}
+
+            {!isLoginView && registerRole === 'student' && (
+              <>
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Enrollment Number (e.g. CS202601) *"
+                  value={rollNumber}
+                  onChangeText={setRollNumber}
+                  autoCapitalize="characters"
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Branch (e.g. Computer Science) *"
+                  value={branch}
+                  onChangeText={setBranch}
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Academic Year (1-4) *"
+                  value={regYear}
+                  onChangeText={setRegYear}
+                  keyboardType="numeric"
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Current Semester (1-8) *"
+                  value={regSemester}
+                  onChangeText={setRegSemester}
+                  keyboardType="numeric"
+                />
+              </>
+            )}
+
+            {!isLoginView && registerRole === 'faculty' && (
+              <>
+                <TextInput 
+                  style={styles.input}
+                  placeholder="College ID *"
+                  value={collegeId}
+                  onChangeText={setCollegeId}
+                  autoCapitalize="characters"
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Post (e.g. Professor) *"
+                  value={post}
+                  onChangeText={setPost}
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Department (e.g. IoT Dept) *"
+                  value={regFacultyDept}
+                  onChangeText={setRegFacultyDept}
+                />
+              </>
+            )}
 
             <TouchableOpacity style={styles.button} onPress={isLoginView ? handleLogin : handleRegister}>
               <Text style={styles.buttonText}>{isLoginView ? 'Login' : 'Register'}</Text>
