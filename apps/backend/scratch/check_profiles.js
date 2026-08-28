@@ -1,3 +1,4 @@
+require("dotenv").config();
 const mongoose = require("mongoose");
 const StudentProfile = require("../src/models/StudentProfile");
 const User = require("../src/models/User");

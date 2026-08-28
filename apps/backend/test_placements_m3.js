@@ -29,7 +29,7 @@ const runTest = async () => {
   try {
     // 0. Clean DB Sandbox
     console.log("Cleaning database sandbox records...");
-    await mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/trellis");
+    await mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/trellis");
     const testUser = await User.findOne({ email: "student@ips.edu" });
     if (testUser) {
       await PlacementRegistration.deleteMany({ studentId: testUser._id });
