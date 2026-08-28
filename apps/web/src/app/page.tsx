@@ -19,6 +19,13 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
 
+  const [registerRole, setRegisterRole] = useState<"student" | "faculty">("student");
+  const [fullName, setFullName] = useState("");
+  const [enrollmentNumber, setEnrollmentNumber] = useState("");
+  const [branch, setBranch] = useState("");
+  const [collegeId, setCollegeId] = useState("");
+  const [post, setPost] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -87,6 +94,15 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoginView) {
+      handleLogin(e);
+    } else {
+      handleRegister(e, registerRole);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
@@ -125,11 +141,26 @@ export default function Home() {
     setAuthMessage("");
     setLoading(true);
 
+    const payload: any = {
+      email,
+      password,
+      role: selectedRole,
+      name: fullName
+    };
+
+    if (selectedRole === "student") {
+      payload.enrollmentNumber = enrollmentNumber;
+      payload.branch = branch;
+    } else if (selectedRole === "faculty") {
+      payload.collegeId = collegeId;
+      payload.post = post;
+    }
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role: selectedRole }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (data.success) {
@@ -542,7 +573,30 @@ export default function Home() {
               </div>
             )}
 
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {!isLoginView && (
+                <div className="flex bg-zinc-100 rounded-xl p-1 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setRegisterRole("student")}
+                    className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition ${
+                      registerRole === "student" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                    }`}
+                  >
+                    Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRegisterRole("faculty")}
+                    className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition ${
+                      registerRole === "faculty" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                    }`}
+                  >
+                    Faculty
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Campus Email</label>
                 <input
@@ -551,7 +605,7 @@ export default function Home() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
-                  placeholder="student@ips.edu"
+                  placeholder="user@ips.edu"
                 />
               </div>
               <div>
@@ -566,29 +620,84 @@ export default function Home() {
                 />
               </div>
 
-              {isLoginView ? (
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow"
-                >
-                  Authorize Workspace
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <button
-                    onClick={(e) => handleRegister(e, "student")}
-                    className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold"
-                  >
-                    Student Reg
-                  </button>
-                  <button
-                    onClick={(e) => handleRegister(e, "faculty")}
-                    className="flex-1 py-3.5 bg-zinc-150 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold"
-                  >
-                    Faculty Reg
-                  </button>
-                </div>
+              {!isLoginView && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                      placeholder="John Doe"
+                    />
+                  </div>
+
+                  {registerRole === "student" ? (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Enrollment Number</label>
+                        <input
+                          type="text"
+                          required
+                          value={enrollmentNumber}
+                          onChange={(e) => setEnrollmentNumber(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="0108CS211000"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Branch</label>
+                        <input
+                          type="text"
+                          required
+                          value={branch}
+                          onChange={(e) => setBranch(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="Computer Science"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">College ID</label>
+                        <input
+                          type="text"
+                          required
+                          value={collegeId}
+                          onChange={(e) => setCollegeId(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="FAC1001"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Post</label>
+                        <input
+                          type="text"
+                          required
+                          value={post}
+                          onChange={(e) => setPost(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="Assistant Professor"
+                        />
+                      </div>
+                    </>
+                  )}
+                </>
               )}
+
+              <button
+                type="submit"
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow"
+              >
+                {isLoginView
+                  ? "Authorize Workspace"
+                  : registerRole === "student"
+                  ? "Register Student Account"
+                  : "Register Faculty Account"}
+              </button>
             </form>
 
             <button

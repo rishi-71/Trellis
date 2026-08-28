@@ -1,4 +1,6 @@
 const User = require("../models/User");
+const StudentProfile = require("../models/StudentProfile");
+const FacultyProfile = require("../models/FacultyProfile");
 const jwt = require("jsonwebtoken");
 
 const generateToken = (user) => {
@@ -11,10 +13,10 @@ const generateToken = (user) => {
 
 exports.register = async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const { email, password, role, name, rollNumber, enrollmentNumber, branch, collegeId, post } = req.body;
     
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: "Email and password are required" });
+    if (!email || !password || !role) {
+      return res.status(400).json({ success: false, message: "Email, password, and role are required" });
     }
     
     // Check if user already exists
@@ -22,10 +24,54 @@ exports.register = async (req, res) => {
     if (existingUser) {
       return res.status(400).json({ success: false, message: "User already exists with this email" });
     }
+
+    // Role-specific validation
+    if (role === "student") {
+      const finalRoll = rollNumber || enrollmentNumber;
+      if (!name || !finalRoll || !branch) {
+        return res.status(400).json({ success: false, message: "Full Name, Enrollment Number, and Branch are required for students" });
+      }
+      // Check if roll number already exists
+      const existingStudent = await StudentProfile.findOne({ rollNumber: finalRoll });
+      if (existingStudent) {
+        return res.status(400).json({ success: false, message: "Student with this Enrollment Number already exists" });
+      }
+    } else if (role === "faculty") {
+      if (!name || !collegeId || !post) {
+        return res.status(400).json({ success: false, message: "Full Name, College ID, and Post are required for faculty" });
+      }
+      // Check if college ID already exists
+      const existingFaculty = await FacultyProfile.findOne({ collegeId });
+      if (existingFaculty) {
+        return res.status(400).json({ success: false, message: "Faculty with this College ID already exists" });
+      }
+    }
     
     // Create new user
     const user = new User({ email, password, role });
     await user.save();
+    
+    // Create profile
+    if (role === "student") {
+      const finalRoll = rollNumber || enrollmentNumber;
+      const graduationYear = req.body.graduationYear || (new Date().getFullYear() + 3);
+      const studentProfile = new StudentProfile({
+        user: user._id,
+        name,
+        rollNumber: finalRoll,
+        branch,
+        graduationYear
+      });
+      await studentProfile.save();
+    } else if (role === "faculty") {
+      const facultyProfile = new FacultyProfile({
+        user: user._id,
+        name,
+        collegeId,
+        post
+      });
+      await facultyProfile.save();
+    }
     
     const token = generateToken(user);
     

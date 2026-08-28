@@ -22,6 +22,9 @@ export default function ProfileScreen() {
   const [isLoginView, setIsLoginView] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [registerRole, setRegisterRole] = useState<'student' | 'faculty'>('student');
+  const [collegeId, setCollegeId] = useState('');
+  const [post, setPost] = useState('');
   
   // Profile State
   const [loading, setLoading] = useState(false);
@@ -119,15 +122,39 @@ export default function ProfileScreen() {
   // Register handler
   const handleRegister = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Error', 'Please fill in Email and Password');
       return;
     }
+
+    const payload: any = {
+      email,
+      password,
+      role: registerRole,
+      name
+    };
+
+    if (registerRole === 'student') {
+      if (!name || !rollNumber || !branch) {
+        Alert.alert('Error', 'Please fill in Full Name, Enrollment Number, and Branch');
+        return;
+      }
+      payload.enrollmentNumber = rollNumber;
+      payload.branch = branch;
+    } else {
+      if (!name || !collegeId || !post) {
+        Alert.alert('Error', 'Please fill in Full Name, College ID, and Post');
+        return;
+      }
+      payload.collegeId = collegeId;
+      payload.post = post;
+    }
+
     setLoading(true);
     try {
       const response = await fetch(`${backendUrl}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, role: 'student' }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (data.success) {
@@ -219,8 +246,25 @@ export default function ProfileScreen() {
         {/* 1. Auth View (Login / Register) */}
         {!token && !loading && (
           <View style={styles.card}>
-            <Text style={styles.title}>{isLoginView ? 'Trellis Student Login' : 'Trellis Student Register'}</Text>
+            <Text style={styles.title}>{isLoginView ? 'Trellis Campus OS Login' : 'Trellis Register Account'}</Text>
             
+            {!isLoginView && (
+              <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 12, padding: 3, marginBottom: 12 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: registerRole === 'student' ? '#FFF' : 'transparent' }}
+                  onPress={() => setRegisterRole('student')}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: registerRole === 'student' ? '#047857' : '#6B7280' }}>Student</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: registerRole === 'faculty' ? '#FFF' : 'transparent' }}
+                  onPress={() => setRegisterRole('faculty')}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: registerRole === 'faculty' ? '#047857' : '#6B7280' }}>Faculty</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <TextInput 
               style={styles.input}
               placeholder="Email"
@@ -238,6 +282,51 @@ export default function ProfileScreen() {
               secureTextEntry
               autoCapitalize="none"
             />
+
+            {!isLoginView && (
+              <TextInput 
+                style={styles.input}
+                placeholder="Full Name *"
+                value={name}
+                onChangeText={setName}
+              />
+            )}
+
+            {!isLoginView && registerRole === 'student' && (
+              <>
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Enrollment Number (e.g. CS202601) *"
+                  value={rollNumber}
+                  onChangeText={setRollNumber}
+                  autoCapitalize="characters"
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Branch (e.g. Computer Science) *"
+                  value={branch}
+                  onChangeText={setBranch}
+                />
+              </>
+            )}
+
+            {!isLoginView && registerRole === 'faculty' && (
+              <>
+                <TextInput 
+                  style={styles.input}
+                  placeholder="College ID *"
+                  value={collegeId}
+                  onChangeText={setCollegeId}
+                  autoCapitalize="characters"
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Post (e.g. Professor) *"
+                  value={post}
+                  onChangeText={setPost}
+                />
+              </>
+            )}
 
             <TouchableOpacity style={styles.button} onPress={isLoginView ? handleLogin : handleRegister}>
               <Text style={styles.buttonText}>{isLoginView ? 'Login' : 'Register'}</Text>
