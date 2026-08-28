@@ -20,6 +20,7 @@ export default function PlacementsPage() {
 
   // Onboarding / Semester timing state
   const [studentSemester, setStudentSemester] = useState<number>(1);
+  const [studentYear, setStudentYear] = useState<number>(1);
   const [isRetryAttempt, setIsRetryAttempt] = useState(false);
 
   // Form Section States
@@ -116,10 +117,14 @@ export default function PlacementsPage() {
     const savedToken = localStorage.getItem("trellis_token");
     const savedRole = localStorage.getItem("trellis_role");
     const savedEmail = localStorage.getItem("trellis_email");
+    const savedYear = parseInt(localStorage.getItem("trellis_student_year") || "1");
+    const savedSemester = parseInt(localStorage.getItem("trellis_student_semester") || "1");
     if (savedToken && savedEmail) {
       setToken(savedToken);
       setUserRole(savedRole);
       setUserEmail(savedEmail);
+      setStudentYear(savedYear);
+      setStudentSemester(savedSemester);
       if (savedRole === "admin" || savedRole === "faculty") {
         setActiveTab("admin-post");
       } else {
@@ -642,6 +647,25 @@ export default function PlacementsPage() {
       setLoading(false);
     }
   };
+
+  const isYearSemAllowed = studentYear >= 4 || studentSemester >= 7;
+  const isRestricted = (userRole === "student" && !isYearSemAllowed) || userRole === "faculty";
+
+  if (isRestricted) {
+    return (
+      <DashboardLayout>
+        <div className="bg-white border border-rose-100 rounded-3xl p-8 text-center max-w-lg mx-auto mt-12 shadow-sm space-y-4">
+          <span className="text-4xl">💼</span>
+          <h2 className="text-lg font-black text-rose-800">Access Restricted</h2>
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            {userRole === "faculty"
+              ? "The Placement Board is not accessible to faculty members."
+              : "The Placement Board is restricted to students in their 4th Year or 7th Semester (and above)."}
+          </p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

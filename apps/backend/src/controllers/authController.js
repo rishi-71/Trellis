@@ -13,7 +13,7 @@ const generateToken = (user) => {
 
 exports.register = async (req, res) => {
   try {
-    const { email, password, role, name, rollNumber, enrollmentNumber, branch, collegeId, post } = req.body;
+    const { email, password, role, name, rollNumber, enrollmentNumber, branch, collegeId, post, year, semester, department } = req.body;
     
     if (!email || !password || !role) {
       return res.status(400).json({ success: false, message: "Email, password, and role are required" });
@@ -28,8 +28,8 @@ exports.register = async (req, res) => {
     // Role-specific validation
     if (role === "student") {
       const finalRoll = rollNumber || enrollmentNumber;
-      if (!name || !finalRoll || !branch) {
-        return res.status(400).json({ success: false, message: "Full Name, Enrollment Number, and Branch are required for students" });
+      if (!name || !finalRoll || !branch || !year || !semester) {
+        return res.status(400).json({ success: false, message: "Full Name, Enrollment Number, Branch, Year, and Semester are required for students" });
       }
       // Check if roll number already exists
       const existingStudent = await StudentProfile.findOne({ rollNumber: finalRoll });
@@ -37,8 +37,8 @@ exports.register = async (req, res) => {
         return res.status(400).json({ success: false, message: "Student with this Enrollment Number already exists" });
       }
     } else if (role === "faculty") {
-      if (!name || !collegeId || !post) {
-        return res.status(400).json({ success: false, message: "Full Name, College ID, and Post are required for faculty" });
+      if (!name || !collegeId || !post || !department) {
+        return res.status(400).json({ success: false, message: "Full Name, College ID, Post, and Department are required for faculty" });
       }
       // Check if college ID already exists
       const existingFaculty = await FacultyProfile.findOne({ collegeId });
@@ -60,7 +60,9 @@ exports.register = async (req, res) => {
         name,
         rollNumber: finalRoll,
         branch,
-        graduationYear
+        graduationYear,
+        year: parseInt(req.body.year) || 1,
+        semester: parseInt(req.body.semester) || 1
       });
       await studentProfile.save();
     } else if (role === "faculty") {
@@ -68,7 +70,8 @@ exports.register = async (req, res) => {
         user: user._id,
         name,
         collegeId,
-        post
+        post,
+        department
       });
       await facultyProfile.save();
     }
@@ -121,6 +124,30 @@ exports.login = async (req, res) => {
         email: user.email,
         role: user.role
       }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    let profile = null;
+    if (user.role === "student") {
+      profile = await StudentProfile.findOne({ user: user._id });
+    } else if (user.role === "faculty") {
+      profile = await FacultyProfile.findOne({ user: user._id });
+    }
+
+    res.json({
+      success: true,
+      user,
+      profile
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

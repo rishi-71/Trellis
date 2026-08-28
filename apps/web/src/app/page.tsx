@@ -25,6 +25,23 @@ export default function Home() {
   const [branch, setBranch] = useState("");
   const [collegeId, setCollegeId] = useState("");
   const [post, setPost] = useState("");
+  const [year, setYear] = useState("1");
+  const [semester, setSemester] = useState("1");
+  const [facultyDept, setFacultyDept] = useState("");
+
+  const [studentBranch, setStudentBranch] = useState("");
+  const [studentYear, setStudentYear] = useState(1);
+  const [studentSemester, setStudentSemester] = useState(1);
+  const [facultyDepartment, setFacultyDepartment] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setStudentBranch(localStorage.getItem("trellis_student_branch") || "");
+      setStudentYear(parseInt(localStorage.getItem("trellis_student_year") || "1"));
+      setStudentSemester(parseInt(localStorage.getItem("trellis_student_semester") || "1"));
+      setFacultyDepartment(localStorage.getItem("trellis_faculty_dept") || "");
+    }
+  }, [token]);
 
   const [loading, setLoading] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -103,6 +120,35 @@ export default function Home() {
     }
   };
 
+  const syncUserProfile = async (tk: string) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${tk}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        if (data.user.role === "student" && data.profile) {
+          localStorage.setItem("trellis_student_branch", data.profile.branch || "");
+          localStorage.setItem("trellis_student_year", (data.profile.year || 1).toString());
+          localStorage.setItem("trellis_student_semester", (data.profile.semester || 1).toString());
+          localStorage.removeItem("trellis_faculty_dept");
+        } else if (data.user.role === "faculty" && data.profile) {
+          localStorage.setItem("trellis_faculty_dept", data.profile.department || "");
+          localStorage.removeItem("trellis_student_branch");
+          localStorage.removeItem("trellis_student_year");
+          localStorage.removeItem("trellis_student_semester");
+        } else {
+          localStorage.removeItem("trellis_student_branch");
+          localStorage.removeItem("trellis_student_year");
+          localStorage.removeItem("trellis_student_semester");
+          localStorage.removeItem("trellis_faculty_dept");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to sync user profile:", err);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
@@ -123,6 +169,7 @@ export default function Home() {
         localStorage.setItem("trellis_token", data.token);
         localStorage.setItem("trellis_role", data.user.role);
         localStorage.setItem("trellis_email", data.user.email);
+        await syncUserProfile(data.token);
         setAuthMessage("Logged in successfully!");
         setIsAuthModalOpen(false);
       } else {
@@ -151,9 +198,12 @@ export default function Home() {
     if (selectedRole === "student") {
       payload.enrollmentNumber = enrollmentNumber;
       payload.branch = branch;
+      payload.year = year;
+      payload.semester = semester;
     } else if (selectedRole === "faculty") {
       payload.collegeId = collegeId;
       payload.post = post;
+      payload.department = facultyDept;
     }
 
     try {
@@ -170,6 +220,7 @@ export default function Home() {
         localStorage.setItem("trellis_token", data.token);
         localStorage.setItem("trellis_role", data.user.role);
         localStorage.setItem("trellis_email", data.user.email);
+        await syncUserProfile(data.token);
         setAuthMessage("Registered successfully!");
         setIsAuthModalOpen(false);
       } else {
@@ -502,8 +553,43 @@ export default function Home() {
                 </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {desktopApps.slice(0, 6).map((app) => (
-                    <Link
+                  {desktopApps
+                    .filter((app) => {
+                      if (userRole === "student") {
+                        if (app.path === "/sensors") {
+                          const branchName = (studentBranch || "").toLowerCase();
+                          const isAllowed =
+                            branchName.includes("electronics") ||
+                            branchName.includes("electrical") ||
+                            branchName.includes("ece") ||
+                            branchName.includes("eee") ||
+                            branchName.includes("ex");
+                          if (!isAllowed) return false;
+                        }
+                        if (app.path === "/placements") {
+                          const isAllowed = studentYear >= 4 || studentSemester >= 7;
+                          if (!isAllowed) return false;
+                        }
+                      } else if (userRole === "faculty") {
+                        if (app.path === "/placements" || app.path === "/complaints") {
+                          return false;
+                        }
+                        if (app.path === "/sensors") {
+                          const deptName = (facultyDepartment || "").toLowerCase();
+                          const isAllowed =
+                            deptName.includes("iot") ||
+                            deptName.includes("electronics") ||
+                            deptName.includes("electrical") ||
+                            deptName.includes("ece") ||
+                            deptName.includes("eee");
+                          if (!isAllowed) return false;
+                        }
+                      }
+                      return true;
+                    })
+                    .slice(0, 6)
+                    .map((app) => (
+                      <Link
                       key={app.name}
                       href={app.path}
                       className="p-4 bg-zinc-50 border border-zinc-200/50 rounded-2xl hover:border-emerald-300 hover:bg-emerald-50/10 transition-all flex items-center gap-4 group"
@@ -658,6 +744,40 @@ export default function Home() {
                           placeholder="Computer Science"
                         />
                       </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Year</label>
+                          <select
+                            required
+                            value={year}
+                            onChange={(e) => setYear(e.target.value)}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none text-zinc-800"
+                          >
+                            <option value="1">1st Year</option>
+                            <option value="2">2nd Year</option>
+                            <option value="3">3rd Year</option>
+                            <option value="4">4th Year</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Semester</label>
+                          <select
+                            required
+                            value={semester}
+                            onChange={(e) => setSemester(e.target.value)}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none text-zinc-800"
+                          >
+                            <option value="1">1st Sem</option>
+                            <option value="2">2nd Sem</option>
+                            <option value="3">3rd Sem</option>
+                            <option value="4">4th Sem</option>
+                            <option value="5">5th Sem</option>
+                            <option value="6">6th Sem</option>
+                            <option value="7">7th Sem</option>
+                            <option value="8">8th Sem</option>
+                          </select>
+                        </div>
+                      </div>
                     </>
                   ) : (
                     <>
@@ -681,6 +801,17 @@ export default function Home() {
                           onChange={(e) => setPost(e.target.value)}
                           className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
                           placeholder="Assistant Professor"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Department</label>
+                        <input
+                          type="text"
+                          required
+                          value={facultyDept}
+                          onChange={(e) => setFacultyDept(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="IoT Dept"
                         />
                       </div>
                     </>

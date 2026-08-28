@@ -28,6 +28,10 @@ type ActiveApp = 'none' | 'finder' | 'career' | 'placements' | 'sensors' | 'noti
 export default function HomeScreen() {
   const [token, setToken] = useState<string | null>(globalState.token);
   const [ipAddress, setIpAddress] = useState(globalState.ipAddress);
+  const [userRole, setUserRole] = useState<string | null>(globalState.userRole);
+  const [studentBranch, setStudentBranch] = useState(globalState.studentBranch);
+  const [studentYear, setStudentYear] = useState(globalState.studentYear);
+  const [studentSemester, setStudentSemester] = useState(globalState.studentSemester);
   const [activeApp, setActiveApp] = useState<ActiveApp>('none');
 
   // Sync token and IP
@@ -35,6 +39,10 @@ export default function HomeScreen() {
     const unsubscribe = globalState.subscribe(() => {
       setToken(globalState.token);
       setIpAddress(globalState.ipAddress);
+      setUserRole(globalState.userRole);
+      setStudentBranch(globalState.studentBranch);
+      setStudentYear(globalState.studentYear);
+      setStudentSemester(globalState.studentSemester);
     });
     return unsubscribe;
   }, []);
@@ -104,7 +112,41 @@ export default function HomeScreen() {
           {/* Vertical Launcher List */}
           <Text style={styles.sectionHeading}>Campus Applications</Text>
           <View style={styles.list}>
-            {desktopApps.map((app) => (
+            {desktopApps
+              .filter((app) => {
+                if (userRole === "student") {
+                  if (app.id === "sensors") {
+                    const branchName = (studentBranch || "").toLowerCase();
+                    const isAllowed =
+                      branchName.includes("electronics") ||
+                      branchName.includes("electrical") ||
+                      branchName.includes("ece") ||
+                      branchName.includes("eee") ||
+                      branchName.includes("ex");
+                    if (!isAllowed) return false;
+                  }
+                  if (app.id === "placements") {
+                    const isAllowed = studentYear >= 4 || studentSemester >= 7;
+                    if (!isAllowed) return false;
+                  }
+                } else if (userRole === "faculty") {
+                  if (app.id === "placements" || app.id === "complaints") {
+                    return false;
+                  }
+                  if (app.id === "sensors") {
+                    const deptName = (studentBranch || "").toLowerCase();
+                    const isAllowed =
+                      deptName.includes("iot") ||
+                      deptName.includes("electronics") ||
+                      deptName.includes("electrical") ||
+                      deptName.includes("ece") ||
+                      deptName.includes("eee");
+                    if (!isAllowed) return false;
+                  }
+                }
+                return true;
+              })
+              .map((app) => (
               <TouchableOpacity 
                 key={app.id} 
                 style={styles.listRow} 
@@ -139,10 +181,63 @@ export default function HomeScreen() {
           <ScrollView contentContainerStyle={styles.workspaceContent}>
             {activeApp === 'finder' && <FinderModule token={token} backendUrl={backendUrl} />}
             {activeApp === 'career' && <CareerModule token={token} backendUrl={backendUrl} />}
-            {activeApp === 'placements' && <PlacementsModule token={token} backendUrl={backendUrl} />}
-            {activeApp === 'sensors' && <SensorsModule token={token} backendUrl={backendUrl} />}
+            {activeApp === 'placements' && (() => {
+              const isAllowed = (userRole === 'student' && (studentYear >= 4 || studentSemester >= 7)) || userRole === 'admin';
+              if (!isAllowed) {
+                return (
+                  <View style={{ padding: 24, alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, margin: 16 }}>
+                    <Text style={{ fontSize: 32, marginBottom: 12 }}>💼</Text>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#EF4444', marginBottom: 8 }}>Access Restricted</Text>
+                    <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
+                      {userRole === 'faculty'
+                        ? 'The Placement Board is not accessible to faculty members.'
+                        : 'The Placement Board is restricted to students in their 4th Year or 7th Semester (and above).'}
+                    </Text>
+                  </View>
+                );
+              }
+              return <PlacementsModule token={token} backendUrl={backendUrl} />;
+            })()}
+            {activeApp === 'sensors' && (() => {
+              let isAllowed = false;
+              if (userRole === 'student') {
+                const branchName = (studentBranch || "").toLowerCase();
+                isAllowed = branchName.includes("electronics") || branchName.includes("electrical") || branchName.includes("ece") || branchName.includes("eee") || branchName.includes("ex");
+              } else if (userRole === 'faculty') {
+                const deptName = (studentBranch || "").toLowerCase();
+                isAllowed = deptName.includes("iot") || deptName.includes("electronics") || deptName.includes("electrical") || deptName.includes("ece") || deptName.includes("eee");
+              } else if (userRole === 'admin') {
+                isAllowed = true;
+              }
+
+              if (!isAllowed) {
+                return (
+                  <View style={{ padding: 24, alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, margin: 16 }}>
+                    <Text style={{ fontSize: 32, marginBottom: 12 }}>🔬</Text>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#EF4444', marginBottom: 8 }}>Access Restricted</Text>
+                    <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
+                      The IoT Sensor Renting feature is restricted to students and faculty of Electronics, Electrical, and IoT branches/departments.
+                    </Text>
+                  </View>
+                );
+              }
+              return <SensorsModule token={token} backendUrl={backendUrl} />;
+            })()}
             {activeApp === 'notices' && <NoticesModule token={token} backendUrl={backendUrl} />}
-            {activeApp === 'complaints' && <ComplaintsModule token={token} backendUrl={backendUrl} />}
+            {activeApp === 'complaints' && (() => {
+              if (userRole === 'faculty') {
+                return (
+                  <View style={{ padding: 24, alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, margin: 16 }}>
+                    <Text style={{ fontSize: 32, marginBottom: 12 }}>🔧</Text>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#EF4444', marginBottom: 8 }}>Access Restricted</Text>
+                    <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
+                      The Support Complaints board is not accessible to faculty members.
+                    </Text>
+                  </View>
+                );
+              }
+              return <ComplaintsModule token={token} backendUrl={backendUrl} />;
+            })()}
             {activeApp === 'lostfound' && <LostFoundModule token={token} backendUrl={backendUrl} />}
             {activeApp === 'sos' && <SOSModule token={token} backendUrl={backendUrl} />}
           </ScrollView>

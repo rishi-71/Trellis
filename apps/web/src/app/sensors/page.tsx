@@ -9,6 +9,8 @@ export default function SensorsPage() {
   const [token, setToken] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [studentBranch, setStudentBranch] = useState("");
+  const [facultyDept, setFacultyDept] = useState("");
   const [loading, setLoading] = useState(false);
 
   // States
@@ -58,10 +60,14 @@ export default function SensorsPage() {
     const savedToken = localStorage.getItem("trellis_token");
     const savedRole = localStorage.getItem("trellis_role");
     const savedEmail = localStorage.getItem("trellis_email");
+    const savedBranch = localStorage.getItem("trellis_student_branch") || "";
+    const savedFacultyDept = localStorage.getItem("trellis_faculty_dept") || "";
     if (savedToken) {
       setToken(savedToken);
       setUserRole(savedRole);
       setUserEmail(savedEmail);
+      setStudentBranch(savedBranch);
+      setFacultyDept(savedFacultyDept);
     }
   }, []);
 
@@ -234,6 +240,40 @@ export default function SensorsPage() {
       alert("Error returning sensor.");
     }
   };
+
+  const branchLower = (studentBranch || "").toLowerCase();
+  const isBranchAllowed =
+    branchLower.includes("electronics") ||
+    branchLower.includes("electrical") ||
+    branchLower.includes("ece") ||
+    branchLower.includes("eee") ||
+    branchLower.includes("ex");
+
+  const deptLower = (facultyDept || "").toLowerCase();
+  const isDeptAllowed =
+    deptLower.includes("iot") ||
+    deptLower.includes("electronics") ||
+    deptLower.includes("electrical") ||
+    deptLower.includes("ece") ||
+    deptLower.includes("eee");
+
+  const isRestricted =
+    (userRole === "student" && !isBranchAllowed) ||
+    (userRole === "faculty" && !isDeptAllowed);
+
+  if (isRestricted) {
+    return (
+      <DashboardLayout>
+        <div className="bg-white border border-rose-100 rounded-3xl p-8 text-center max-w-lg mx-auto mt-12 shadow-sm space-y-4">
+          <span className="text-4xl">🔬</span>
+          <h2 className="text-lg font-black text-rose-800">Access Restricted</h2>
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            The IoT Sensor Renting feature is restricted to students and faculty of <strong>Electronics, Electrical, and IoT</strong> branches/departments.
+          </p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

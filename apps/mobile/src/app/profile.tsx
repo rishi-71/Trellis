@@ -25,6 +25,9 @@ export default function ProfileScreen() {
   const [registerRole, setRegisterRole] = useState<'student' | 'faculty'>('student');
   const [collegeId, setCollegeId] = useState('');
   const [post, setPost] = useState('');
+  const [regYear, setRegYear] = useState('1');
+  const [regSemester, setRegSemester] = useState('1');
+  const [regFacultyDept, setRegFacultyDept] = useState('');
   
   // Profile State
   const [loading, setLoading] = useState(false);
@@ -92,6 +95,40 @@ export default function ProfileScreen() {
 
   const backendUrl = globalState.backendUrl;
 
+  const syncUserProfile = async (tk: string, role: string) => {
+    globalState.setUserRole(role);
+    try {
+      const response = await fetch(`${backendUrl}/api/auth/me`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tk}`
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        if (role === 'student' && data.profile) {
+          globalState.setStudentBranch(data.profile.branch || '');
+          globalState.setStudentYear(data.profile.year || 1);
+          globalState.setStudentSemester(data.profile.semester || 1);
+          setProfile(data.profile);
+          setHasProfile(true);
+        } else if (role === 'faculty' && data.profile) {
+          globalState.setStudentBranch(data.profile.department || '');
+          globalState.setStudentYear(1);
+          globalState.setStudentSemester(1);
+          setProfile(data.profile);
+          setHasProfile(true);
+        } else {
+          globalState.setStudentBranch('');
+          globalState.setStudentYear(1);
+          globalState.setStudentSemester(1);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync profile:', err);
+    }
+  };
+
   // Login handler
   const handleLogin = async () => {
     if (!email || !password) {
@@ -108,6 +145,7 @@ export default function ProfileScreen() {
       const data = await response.json();
       if (data.success) {
         globalState.setToken(data.token);
+        await syncUserProfile(data.token, data.user.role);
         Alert.alert('Success', 'Logged in successfully!');
       } else {
         Alert.alert('Login Failed', data.message || 'Invalid credentials');
@@ -140,13 +178,16 @@ export default function ProfileScreen() {
       }
       payload.enrollmentNumber = rollNumber;
       payload.branch = branch;
+      payload.year = parseInt(regYear) || 1;
+      payload.semester = parseInt(regSemester) || 1;
     } else {
-      if (!name || !collegeId || !post) {
-        Alert.alert('Error', 'Please fill in Full Name, College ID, and Post');
+      if (!name || !collegeId || !post || !regFacultyDept) {
+        Alert.alert('Error', 'Please fill in Full Name, College ID, Post, and Department');
         return;
       }
       payload.collegeId = collegeId;
       payload.post = post;
+      payload.department = regFacultyDept;
     }
 
     setLoading(true);
@@ -159,6 +200,7 @@ export default function ProfileScreen() {
       const data = await response.json();
       if (data.success) {
         globalState.setToken(data.token);
+        await syncUserProfile(data.token, data.user.role);
         Alert.alert('Success', 'Registered successfully!');
       } else {
         Alert.alert('Registration Failed', data.message || 'Something went wrong');
@@ -215,6 +257,10 @@ export default function ProfileScreen() {
   // Logout handler
   const handleLogout = () => {
     globalState.setToken(null);
+    globalState.setUserRole(null);
+    globalState.setStudentBranch('');
+    globalState.setStudentYear(1);
+    globalState.setStudentSemester(1);
     setProfile(null);
     setHasProfile(false);
     setEmail('');
@@ -307,6 +353,20 @@ export default function ProfileScreen() {
                   value={branch}
                   onChangeText={setBranch}
                 />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Academic Year (1-4) *"
+                  value={regYear}
+                  onChangeText={setRegYear}
+                  keyboardType="numeric"
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Current Semester (1-8) *"
+                  value={regSemester}
+                  onChangeText={setRegSemester}
+                  keyboardType="numeric"
+                />
               </>
             )}
 
@@ -324,6 +384,12 @@ export default function ProfileScreen() {
                   placeholder="Post (e.g. Professor) *"
                   value={post}
                   onChangeText={setPost}
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Department (e.g. IoT Dept) *"
+                  value={regFacultyDept}
+                  onChangeText={setRegFacultyDept}
                 />
               </>
             )}

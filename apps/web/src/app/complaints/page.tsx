@@ -98,6 +98,20 @@ export default function ComplaintsPage() {
     }
   };
 
+  if (userRole === "faculty") {
+    return (
+      <DashboardLayout>
+        <div className="bg-white border border-rose-100 rounded-3xl p-8 text-center max-w-lg mx-auto mt-12 shadow-sm space-y-4">
+          <span className="text-4xl">🔧</span>
+          <h2 className="text-lg font-black text-rose-800">Access Restricted</h2>
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            The Support Complaints board is not accessible to faculty members.
+          </p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6 text-zinc-950 font-sans">

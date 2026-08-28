@@ -6,6 +6,7 @@ const StudentProfileSchema = new mongoose.Schema({
   rollNumber: { type: String, required: true, unique: true },
   branch: { type: String, required: true },
   graduationYear: { type: Number, required: true },
+  year: { type: Number, default: 1 },
   semester: { type: Number, default: 1 },
   cgpa: { type: Number, default: 0.0 },
   bio: { type: String, default: "" },
