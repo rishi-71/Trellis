@@ -33,18 +33,18 @@ export default function FinderPage() {
   }, []);
 
   useEffect(() => {
-    if (token) {
-      fetchLocations(categoryFilter);
-      fetchFacultyCabins(facultySearchQuery);
-    }
+    fetchLocations(categoryFilter);
+    fetchFacultyCabins(facultySearchQuery);
   }, [token, categoryFilter]);
 
   const fetchLocations = async (category: string | null = null) => {
     try {
       const url = category ? `${BACKEND_URL}/api/locations?category=${category}` : `${BACKEND_URL}/api/locations`;
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const headers: any = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(url, { headers });
       const data = await response.json();
       if (data.success) setLocations(data.locations);
     } catch (err) {
@@ -54,9 +54,11 @@ export default function FinderPage() {
 
   const fetchFacultyCabins = async (nameQuery = "") => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/faculty?name=${nameQuery}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const headers: any = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(`${BACKEND_URL}/api/faculty?name=${nameQuery}`, { headers });
       const data = await response.json();
       if (data.success) setFacultyCabins(data.cabins);
     } catch (err) {
@@ -65,6 +67,10 @@ export default function FinderPage() {
   };
 
   const updateFacultyCabinStatus = async (cabinId: string, status: string) => {
+    if (!token) {
+      alert("Please login first to update cabin status.");
+      return;
+    }
     try {
       const response = await fetch(`${BACKEND_URL}/api/faculty/${cabinId}/status`, {
         method: "PATCH",
@@ -88,9 +94,11 @@ export default function FinderPage() {
     if (!destLocationId) return;
     setLoadingRoute(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/route?from=${selectedStartNode}&to=${destLocationId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const headers: any = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(`${BACKEND_URL}/api/route?from=${selectedStartNode}&to=${destLocationId}`, { headers });
       const data = await response.json();
       if (data.success) {
         setRoutePath(data.path);

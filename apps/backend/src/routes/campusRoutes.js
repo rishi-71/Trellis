@@ -4,12 +4,12 @@ const campusController = require("../controllers/campusController");
 const { verifyToken, verifyStudent, verifyFacultyOrAdmin } = require("../middleware/auth");
 
 // M1: Campus Finder
-router.get("/locations", verifyToken, campusController.getAllLocations);
-router.get("/locations/search", verifyToken, campusController.searchLocations);
-router.get("/locations/:id", verifyToken, campusController.getLocationDetail);
-router.get("/faculty", verifyToken, campusController.getAllFacultyCabins);
+router.get("/locations", campusController.getAllLocations);
+router.get("/locations/search", campusController.searchLocations);
+router.get("/locations/:id", campusController.getLocationDetail);
+router.get("/faculty", campusController.getAllFacultyCabins);
 router.patch("/faculty/:id/status", verifyToken, campusController.updateFacultyStatus);
-router.get("/route", verifyToken, campusController.getShortestPath);
+router.get("/route", campusController.getShortestPath);
 
 // M3: Placements & Internships
 router.get("/placements", verifyToken, campusController.getAllJobs);

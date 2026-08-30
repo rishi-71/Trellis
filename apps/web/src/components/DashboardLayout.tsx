@@ -29,7 +29,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     const savedEmail = localStorage.getItem("trellis_email");
 
     if (!savedToken) {
-      router.push("/");
+      if (pathname !== "/finder") {
+        router.push("/");
+      }
     } else {
       setToken(savedToken);
       setUserRole(savedRole);
@@ -39,7 +41,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       setStudentSemester(parseInt(localStorage.getItem("trellis_student_semester") || "1"));
       setFacultyDepartment(localStorage.getItem("trellis_faculty_dept") || "");
     }
-  }, [router]);
+  }, [router, pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem("trellis_token");
@@ -51,7 +53,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     router.push("/");
   };
 
-  if (!mounted || !token) {
+  if (!mounted || (!token && pathname !== "/finder")) {
     return (
       <div className="min-h-screen bg-zinc-50 flex items-center justify-center font-sans">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-600"></div>
@@ -78,10 +80,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Logo */}
         <div className="p-6 border-b border-emerald-100 flex items-center gap-3">
           <span className="text-2xl">🌱</span>
-          <div>
-            <h1 className="text-lg font-black text-emerald-800 tracking-tight">Trellis</h1>
-            <p className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold">Campus OS</p>
-          </div>
+          <span className="text-lg font-black text-emerald-800 tracking-tight">Trellis</span>
         </div>
 
         {/* Navigation */}
@@ -125,14 +124,22 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             return (
               <Link
                 key={item.name}
-                href={item.path}
-                className={`flex items-center px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+                href={isGated && !token ? "/" : item.path}
+                onClick={(e) => {
+                  if (isGated && !token) {
+                    e.preventDefault();
+                    alert("Please login first to access this feature");
+                    router.push("/");
+                  }
+                }}
+                className={`flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
                   isActive
                     ? "bg-emerald-50 text-emerald-800 border-l-4 border-emerald-600"
                     : "text-zinc-600 hover:bg-emerald-50/50 hover:text-emerald-800"
                 }`}
               >
-                {item.name}
+                <span>{item.name}</span>
+                {isGated && !token && <span className="text-xs">🔒</span>}
               </Link>
             );
           })}
@@ -140,21 +147,32 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         {/* User Info & Logout */}
         <div className="p-4 border-t border-emerald-100 bg-emerald-50/20">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-800 uppercase">
-              {userEmail ? userEmail[0] : "U"}
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-black text-emerald-800 truncate">{userEmail}</p>
-              <p className="text-[9px] uppercase font-bold text-emerald-600">{userRole}</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="w-full py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all border border-rose-100"
-          >
-            Log Out
-          </button>
+          {token ? (
+            <>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-800 uppercase">
+                  {userEmail ? userEmail[0] : "U"}
+                </div>
+                <div className="overflow-hidden">
+                  <p className="text-xs font-black text-emerald-800 truncate">{userEmail}</p>
+                  <p className="text-[9px] uppercase font-bold text-emerald-600">{userRole}</p>
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="w-full py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all border border-rose-100"
+              >
+                Log Out
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => router.push("/")}
+              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all text-center"
+            >
+              Sign In
+            </button>
+          )}
         </div>
       </aside>
 
