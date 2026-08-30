@@ -7,6 +7,8 @@ const LostFoundSchema = new mongoose.Schema({
   description: { type: String, required: true },
   location: { type: String, required: true },
   contact: { type: String, required: true },
+  proofUrl: { type: String },
+  imageUrl: { type: String },
   date: { type: Date, default: Date.now },
   status: { type: String, enum: ['open', 'claimed'], default: 'open' }
 }, { timestamps: true });
