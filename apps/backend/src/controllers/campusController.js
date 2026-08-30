@@ -368,14 +368,25 @@ exports.getAllLostFound = async (req, res) => {
 
 exports.reportLostFound = async (req, res) => {
   try {
-    const { title, type, description, location, contact } = req.body;
+    const { title, type, description, location, contact, contactDetails, proofUrl, imageUrl } = req.body;
+    
+    if (!title || !type || !description || !location) {
+      return res.status(400).json({ success: false, message: "Missing required fields." });
+    }
+
+    if (type === "lost" && !proofUrl) {
+      return res.status(400).json({ success: false, message: "Ownership proof (receipt/bill) is required for reporting lost items." });
+    }
+
     const item = new LostFound({
       reporter: req.user.id,
       title,
       type,
       description,
       location,
-      contact
+      contact: contact || contactDetails || "",
+      proofUrl,
+      imageUrl
     });
     await item.save();
     res.json({ success: true, item });
