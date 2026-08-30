@@ -22,6 +22,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isAuthRequiredModalOpen, setIsAuthRequiredModalOpen] = useState(false);
 
   const carouselSlides = [
     {
@@ -57,14 +58,14 @@ export default function Home() {
   ];
 
   const desktopApps = [
-    { name: "📍 Campus Finder", path: "/finder", desc: "Shortest route Dijkstra pathfinder maps", bg: "bg-emerald-600" },
-    { name: "💼 Placements Board", path: "/placements", desc: "Placements drive matching & eligibility audits", bg: "bg-teal-700" },
-    { name: "👥 Career Hub Feed", path: "/career", desc: "Digital resume portfolios, feed, & leaderboard", bg: "bg-emerald-700" },
-    { name: "🔬 Sensor Renting", path: "/sensors", desc: "IoT sensor inventories checkout approvals", bg: "bg-emerald-800" },
-    { name: "📢 Notice Board", path: "/events", desc: "Official notices & events registration", bg: "bg-teal-600" },
-    { name: "🔧 Service Complaints", path: "/complaints", desc: "Classroom maintenance support tickets", bg: "bg-emerald-700" },
-    { name: "📦 Lost & Found Claims", path: "/lostfound", desc: "Campus bulletin board for lost claims", bg: "bg-emerald-600" },
-    { name: "🚨 SOS Emergency Panic", path: "/sos", desc: "Immediate guard dispatch alarm trigger", bg: "bg-rose-600" }
+    { name: "Campus Finder", path: "/finder", desc: "Interactive maps, buildings, rooms, facilities and indoor navigation to help you find anything across the campus.", bg: "bg-emerald-600", icon: "📍", illus: "/images/illus_finder.jpg", badge: "SMART CAMPUS SOLUTION" },
+    { name: "Events", path: "/events", desc: "Explore upcoming events, register for workshops, seminars and stay updated with all the happenings around campus.", bg: "bg-teal-600", icon: "📢", illus: "/images/illus_events.jpg" },
+    { name: "Career Profile", path: "/career", desc: "Build your professional identity by showcasing your skills, projects, certifications and achievements.", bg: "bg-emerald-700", icon: "👥", illus: "/images/illus_career.jpg" },
+    { name: "Sensor IoT", path: "/sensors", desc: "Real-time monitoring of campus environment sensors like temperature, humidity, air quality and get instant alerts for any anomalies.", bg: "bg-emerald-800", icon: "🔬", illus: "/images/illus_sensors.jpg" },
+    { name: "Placement", path: "/placements", desc: "Register for placements, upload documents and get automatically matched with eligible job opportunities posted by companies.", bg: "bg-teal-700", icon: "💼", illus: "/images/illus_placement.jpg" },
+    { name: "Service Complaint", path: "/complaints", desc: "Raise complaints regarding any campus service issues and track their status until resolution.", bg: "bg-emerald-700", icon: "🔧", illus: "/images/illus_complaints.jpg" },
+    { name: "Lost & Found", path: "/lostfound", desc: "Report lost items or browse found items across the campus. Get notified when your lost item is found.", bg: "bg-emerald-600", icon: "📦", illus: "/images/illus_lostfound.jpg" },
+    { name: "Security", path: "/sos", desc: "Stay safe with real-time security alerts and emergency notifications to ensure a secure campus environment.", bg: "bg-rose-600", icon: "🚨", illus: "/images/illus_security.jpg" }
   ];
 
   // Sync token from localStorage on load
@@ -151,6 +152,20 @@ export default function Home() {
     }
   };
 
+  const handleFeatureCardClick = (app: any, e: React.MouseEvent) => {
+    const isPublic = app.path === "/finder";
+    if (isPublic) {
+      router.push(app.path);
+    } else {
+      if (token) {
+        router.push(app.path);
+      } else {
+        e.preventDefault();
+        setIsAuthRequiredModalOpen(true);
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen relative overflow-x-hidden font-sans text-zinc-900 bg-[#F4FBF7]">
       {!token ? (
@@ -164,20 +179,15 @@ export default function Home() {
           <div className="relative w-full flex flex-col min-h-screen">
             
             {/* Top Navbar */}
-            <nav className="fixed top-0 left-0 w-full z-45 bg-white/90 backdrop-blur-md border-b border-emerald-100/50 px-6 py-4 flex justify-between items-center shadow-sm">
+            <nav className="fixed top-0 left-0 w-full z-50 bg-white/95 backdrop-blur-md border-b border-zinc-150 px-6 py-4 flex justify-between items-center shadow-sm">
               <div className="flex items-center gap-3">
                 <span className="text-2xl">🌱</span>
-                <div>
-                  <h1 className="text-base font-black text-emerald-800 tracking-tight leading-none">Trellis</h1>
-                  <p className="text-[9px] uppercase tracking-widest text-emerald-600 font-bold">Campus OS</p>
-                </div>
+                <span className="text-lg font-black text-emerald-800 tracking-tight leading-none">Trellis</span>
               </div>
               
-              <div className="hidden md:flex gap-8 text-xs font-bold text-zinc-600">
-                <a href="#hero" className="hover:text-emerald-800 transition-colors">Home</a>
-                <a href="#features" className="hover:text-emerald-800 transition-colors">Features</a>
-                <a href="#events" className="hover:text-emerald-800 transition-colors">Events</a>
-                <a href="#metrics" className="hover:text-emerald-800 transition-colors">Metrics</a>
+              <div className="hidden md:flex gap-8 text-xs font-bold text-zinc-700">
+                <a href="#hero" className="hover:text-emerald-800 transition-colors border-b-2 border-emerald-600 pb-1">Home</a>
+                <a href="#features" className="hover:text-emerald-800 transition-colors pb-1">Features</a>
               </div>
 
               <button
@@ -185,9 +195,9 @@ export default function Home() {
                   setIsLoginView(true);
                   setIsAuthModalOpen(true);
                 }}
-                className="py-2 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow shadow-emerald-600/20"
+                className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow flex items-center gap-2"
               >
-                Sign In
+                <span>👤</span> Login / Signup
               </button>
             </nav>
 
@@ -275,98 +285,45 @@ export default function Home() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    {features.map((feat, idx) => (
-                      <div key={idx} className="bg-zinc-50 p-6 rounded-2xl border border-zinc-200/50 shadow-sm flex flex-col space-y-3 hover:shadow-md transition-shadow">
-                        <span className="text-3xl">{feat.icon}</span>
-                        <h4 className="text-base font-extrabold text-zinc-950">{feat.title}</h4>
-                        <p className="text-xs text-zinc-500 leading-relaxed">{feat.desc}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              {/* Academic Events Section */}
-              <section id="events" className="scroll-mt-24">
-                <div className="bg-white/95 backdrop-blur-md rounded-[2rem] p-8 md:p-12 lg:p-16 border border-emerald-100/20 shadow-xl space-y-8">
-                  <div className="flex justify-between items-end border-b border-zinc-100 pb-6">
-                    <div>
-                      <span className="text-emerald-600 font-bold uppercase tracking-wider text-sm">Notices timeline</span>
-                      <h3 className="text-3xl font-extrabold text-zinc-950 mt-2">Upcoming Campus Events</h3>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setIsLoginView(true);
-                        setIsAuthModalOpen(true);
-                      }}
-                      className="font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer text-xs"
-                    >
-                      Post Event <span>&rarr;</span>
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {sampleEvents.map((evt) => (
-                      <div key={evt._id} className="bg-zinc-50 rounded-2xl p-6 border border-zinc-200/50 flex flex-col justify-between hover:shadow-sm transition-all">
-                        <div>
-                          <h4 className="font-extrabold text-zinc-900 text-sm leading-tight">{evt.title}</h4>
-                          <p className="text-xs text-zinc-500 mt-2 line-clamp-3 leading-relaxed">{evt.description}</p>
-                        </div>
-                        <div className="mt-6 pt-4 border-t border-zinc-200/40 space-y-3">
-                          <div className="text-[10px] text-zinc-400 space-y-1">
-                            <div>📍 Venue: {evt.venue}</div>
-                            <div>📅 Date: {evt.date}</div>
+                  <div className="flex flex-col space-y-6 w-full max-w-5xl mx-auto">
+                    {desktopApps.map((app) => {
+                      return (
+                        <button
+                          key={app.name}
+                          onClick={(e) => handleFeatureCardClick(app, e)}
+                          className="w-full bg-white border border-zinc-200/80 rounded-[1.8rem] hover:border-emerald-300 hover:shadow-lg transition-all p-6 md:p-8 flex flex-col md:flex-row items-center justify-between text-left group gap-6 shadow-sm"
+                        >
+                          <div className="flex flex-col md:flex-row items-start md:items-center gap-6 flex-grow">
+                            <div className="w-16 h-16 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex items-center justify-center text-3xl shrink-0 shadow-sm">
+                              {app.icon}
+                            </div>
+                            <div className="space-y-1 flex-1">
+                              {app.badge && (
+                                <div className="mb-2">
+                                  <span className="bg-emerald-50 text-emerald-800 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded border border-emerald-100/50 shadow-sm">
+                                    {app.badge}
+                                  </span>
+                                </div>
+                              )}
+                              <h4 className="text-xl font-extrabold text-zinc-950 group-hover:text-emerald-850 group-hover:underline decoration-emerald-500 transition-colors">
+                                {app.name}
+                              </h4>
+                              <p className="text-xs text-zinc-500 leading-relaxed max-w-lg pt-1">
+                                {app.desc}
+                              </p>
+                            </div>
                           </div>
-                          <button
-                            onClick={() => {
-                              setIsLoginView(true);
-                              setIsAuthModalOpen(true);
-                            }}
-                            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all"
-                          >
-                            Register Now
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              {/* Placements & Metrics Section */}
-              <section id="metrics" className="scroll-mt-24">
-                <div className="bg-white/95 backdrop-blur-md rounded-[2rem] p-8 md:p-12 lg:p-16 border border-emerald-100/20 shadow-xl space-y-12">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-                    <div>
-                      <span className="text-emerald-600 font-bold uppercase tracking-wider text-sm">Drive Success</span>
-                      <h3 className="text-3xl font-extrabold text-zinc-950 mt-2 mb-4">Placement Milestones</h3>
-                      <p className="text-zinc-600 leading-relaxed mb-6 text-xs">
-                        Trellis automates the placement drive workflow from registering applicant marks records, tracking pending backlog states, checking eligibility bounds, and triggering PDF statistics logs.
-                      </p>
-                      
-                      <div className="grid grid-cols-2 gap-6">
-                        <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-150 text-center shadow-sm">
-                          <div className="text-3xl font-black text-emerald-600">45 LPA</div>
-                          <div className="text-[10px] text-zinc-400 uppercase font-bold mt-1">Highest Package</div>
-                        </div>
-                        <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-150 text-center shadow-sm">
-                          <div className="text-3xl font-black text-emerald-600">100%</div>
-                          <div className="text-[10px] text-zinc-400 uppercase font-bold mt-1">Recruitment Aid</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-zinc-50 p-8 rounded-3xl border border-zinc-200/50 shadow-sm flex flex-col space-y-4">
-                      <h4 className="text-sm font-extrabold text-zinc-950">Seeded Companies Partner List</h4>
-                      <p className="text-xs text-zinc-500">We auto-match eligible students with active jobs posted by leading recruitment firms.</p>
-                      <div className="grid grid-cols-2 gap-4 pt-2">
-                        <div className="bg-white py-3 rounded-lg text-center text-xs font-bold text-zinc-700 border border-zinc-200">Capgemini</div>
-                        <div className="bg-white py-3 rounded-lg text-center text-xs font-bold text-zinc-700 border border-zinc-200">TCS Digital</div>
-                        <div className="bg-white py-3 rounded-lg text-center text-xs font-bold text-zinc-700 border border-zinc-200">Microsoft</div>
-                        <div className="bg-white py-3 rounded-lg text-center text-xs font-bold text-zinc-700 border border-zinc-200">Infosys</div>
-                      </div>
-                    </div>
+                          <div className="flex items-center gap-6 shrink-0 self-end md:self-center">
+                            {app.illus && (
+                              <img src={app.illus} className="h-20 md:h-24 lg:h-28 object-contain select-none pointer-events-none hidden sm:block" alt="" />
+                            )}
+                            <div className="w-10 h-10 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-400 group-hover:bg-emerald-600 group-hover:text-white group-hover:border-emerald-600 transition-all shrink-0">
+                              <span className="text-sm font-bold">&rarr;</span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </section>
@@ -429,38 +386,6 @@ export default function Home() {
               <span className="absolute -right-8 -bottom-8 text-9xl opacity-15">🌱</span>
             </div>
 
-            {/* Interesting Summary Statistics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-white border border-emerald-100 p-5 rounded-2xl shadow-sm flex flex-col justify-between min-h-[120px]">
-                <span className="text-xl">🏆</span>
-                <div className="mt-4">
-                  <h5 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Co-Curricular Points</h5>
-                  <p className="text-xl font-black text-emerald-800 mt-1">150 pts</p>
-                </div>
-              </div>
-              <div className="bg-white border border-emerald-100 p-5 rounded-2xl shadow-sm flex flex-col justify-between min-h-[120px]">
-                <span className="text-xl">🎓</span>
-                <div className="mt-4">
-                  <h5 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Cumulative GPA</h5>
-                  <p className="text-xl font-black text-emerald-800 mt-1">8.54 CGPA</p>
-                </div>
-              </div>
-              <div className="bg-white border border-emerald-100 p-5 rounded-2xl shadow-sm flex flex-col justify-between min-h-[120px]">
-                <span className="text-xl">🔬</span>
-                <div className="mt-4">
-                  <h5 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Active IoT Leases</h5>
-                  <p className="text-xl font-black text-emerald-800 mt-1">1 Leased</p>
-                </div>
-              </div>
-              <div className="bg-white border border-emerald-100 p-5 rounded-2xl shadow-sm flex flex-col justify-between min-h-[120px]">
-                <span className="text-xl">🔧</span>
-                <div className="mt-4">
-                  <h5 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Support Tickets</h5>
-                  <p className="text-xl font-black text-emerald-800 mt-1">0 Open Cases</p>
-                </div>
-              </div>
-            </div>
-
             {/* Quick Launch Grid & SOS Panel */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               {/* Quick Launch Cards */}
@@ -471,22 +396,22 @@ export default function Home() {
                 </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {desktopApps.slice(0, 6).map((app) => (
-                    <Link
+                  {desktopApps.map((app) => (
+                    <button
                       key={app.name}
-                      href={app.path}
-                      className="p-4 bg-zinc-50 border border-zinc-200/50 rounded-2xl hover:border-emerald-300 hover:bg-emerald-50/10 transition-all flex items-center gap-4 group"
+                      onClick={(e) => handleFeatureCardClick(app, e)}
+                      className="p-4 bg-zinc-50 border border-zinc-200/50 rounded-2xl hover:border-emerald-300 hover:bg-emerald-50/10 transition-all flex items-center gap-4 group text-left w-full"
                     >
-                      <div className={`w-10 h-10 rounded-xl ${app.bg} flex items-center justify-center text-lg text-white shadow-sm`}>
-                        {app.name.split(" ")[0]}
+                      <div className={`w-10 h-10 rounded-xl ${app.bg} flex items-center justify-center text-lg text-white shadow-sm shrink-0`}>
+                        {app.icon}
                       </div>
                       <div>
                         <h5 className="text-xs font-black text-emerald-800 group-hover:underline">
-                          {app.name.split(" ").slice(1).join(" ")}
+                          {app.name}
                         </h5>
                         <p className="text-[10px] text-zinc-400 mt-0.5">{app.desc}</p>
                       </div>
-                    </Link>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -597,6 +522,35 @@ export default function Home() {
             >
               {isLoginView ? "Need an account? Register" : "Already have an account? Sign In"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Gated Feature Login Prompt Modal */}
+      {isAuthRequiredModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full border border-emerald-100 shadow-2xl p-6 relative text-center space-y-4">
+            <span className="text-4xl block">🔒</span>
+            <h3 className="text-base font-extrabold text-zinc-950">Access Restricted</h3>
+            <p className="text-xs text-zinc-500 leading-relaxed">Please login first to access this feature.</p>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setIsAuthRequiredModalOpen(false)}
+                className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setIsAuthRequiredModalOpen(false);
+                  setIsLoginView(true);
+                  setIsAuthModalOpen(true);
+                }}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow"
+              >
+                Login
+              </button>
+            </div>
           </div>
         </div>
       )}
