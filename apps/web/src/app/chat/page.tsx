@@ -5,9 +5,11 @@ import DashboardLayout from "../../components/DashboardLayout";
 import { io, Socket } from "socket.io-client";
 import { useSearchParams } from "next/navigation";
 
+import { Suspense } from "react";
+
 const BACKEND_URL = "http://localhost:5000";
 
-export default function ChatPage() {
+function ChatContent() {
   const searchParams = useSearchParams();
   const recipientParam = searchParams.get("recipient");
 
@@ -347,5 +349,18 @@ export default function ChatPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex-1 flex flex-col justify-center items-center text-zinc-400 min-h-screen">
+        <span className="text-4xl mb-2 animate-bounce">💬</span>
+        <p className="text-xs italic">Loading chat module...</p>
+      </div>
+    }>
+      <ChatContent />
+    </Suspense>
   );
 }

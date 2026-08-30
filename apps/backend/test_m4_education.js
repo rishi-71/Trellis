@@ -26,7 +26,7 @@ const runTest = async () => {
   console.log("=== STARTING M4 CAREER PROFILE EDUCATION AUTO-TEST SUITE ===");
   try {
     // Connect to database to fetch student user id
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || "mongodb://localhost:27017/trellis";
+    const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/trellis";
     await mongoose.connect(mongoUri);
     const testUser = await User.findOne({ email: "student@ips.edu" });
     if (!testUser) {

@@ -444,9 +444,9 @@ export default function PlacementsModule({ token, backendUrl }: PlacementsProps)
               <Text style={styles.detailText}>Permanent: {placementReg.personal?.permanentAddress?.addressLine}, {placementReg.personal?.permanentAddress?.city}, {placementReg.personal?.permanentAddress?.state} - {placementReg.personal?.permanentAddress?.pincode}</Text>
 
               <Text style={styles.detailTitle}>Family Information</Text>
-              <Text style={styles.detailText}>Father's Name: {placementReg.family?.fatherName} ({placementReg.family?.fatherOccupation})</Text>
+              <Text style={styles.detailText}>{"Father's Name:"} {placementReg.family?.fatherName} ({placementReg.family?.fatherOccupation})</Text>
               <Text style={styles.detailText}>Father Contact: {placementReg.family?.fatherContact}</Text>
-              <Text style={styles.detailText}>Mother's Name: {placementReg.family?.motherName} ({placementReg.family?.motherOccupation})</Text>
+              <Text style={styles.detailText}>{"Mother's Name:"} {placementReg.family?.motherName} ({placementReg.family?.motherOccupation})</Text>
               <Text style={styles.detailText}>Mother Contact: {placementReg.family?.motherContact}</Text>
 
               <Text style={styles.detailTitle}>Academic History</Text>
@@ -656,7 +656,7 @@ const styles = StyleSheet.create({
     color: '#047857',
   },
   formContainer: {
-    spaceY: 12,
+    gap: 12,
   },
   lockedCard: {
     backgroundColor: '#FAFDFB',
@@ -726,7 +726,7 @@ const styles = StyleSheet.create({
     marginVertical: 1,
   },
   fieldsBlock: {
-    spaceY: 10,
+    gap: 10,
   },
   warningNote: {
     fontSize: 11,
@@ -740,7 +740,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: 12,
-    fontWeight: '950',
+    fontWeight: '900',
     color: '#064E3B',
     marginTop: Spacing.three,
     marginBottom: Spacing.two,
@@ -844,7 +844,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   drivesContainer: {
-    spaceY: 12,
+    gap: 12,
   },
   emptyText: {
     color: '#6B7280',
