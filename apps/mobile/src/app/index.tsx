@@ -115,16 +115,6 @@ export default function HomeScreen() {
             {desktopApps
               .filter((app) => {
                 if (userRole === "student") {
-                  if (app.id === "sensors") {
-                    const branchName = (studentBranch || "").toLowerCase();
-                    const isAllowed =
-                      branchName.includes("electronics") ||
-                      branchName.includes("electrical") ||
-                      branchName.includes("ece") ||
-                      branchName.includes("eee") ||
-                      branchName.includes("ex");
-                    if (!isAllowed) return false;
-                  }
                   if (app.id === "placements") {
                     const isAllowed = studentYear >= 4 || studentSemester >= 7;
                     if (!isAllowed) return false;
@@ -200,14 +190,11 @@ export default function HomeScreen() {
             })()}
             {activeApp === 'sensors' && (() => {
               let isAllowed = false;
-              if (userRole === 'student') {
-                const branchName = (studentBranch || "").toLowerCase();
-                isAllowed = branchName.includes("electronics") || branchName.includes("electrical") || branchName.includes("ece") || branchName.includes("eee") || branchName.includes("ex");
+              if (userRole === 'student' || userRole === 'admin') {
+                isAllowed = true;
               } else if (userRole === 'faculty') {
                 const deptName = (studentBranch || "").toLowerCase();
                 isAllowed = deptName.includes("iot") || deptName.includes("electronics") || deptName.includes("electrical") || deptName.includes("ece") || deptName.includes("eee");
-              } else if (userRole === 'admin') {
-                isAllowed = true;
               }
 
               if (!isAllowed) {
@@ -216,7 +203,7 @@ export default function HomeScreen() {
                     <Text style={{ fontSize: 32, marginBottom: 12 }}>🔬</Text>
                     <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#EF4444', marginBottom: 8 }}>Access Restricted</Text>
                     <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
-                      The IoT Sensor Renting feature is restricted to students and faculty of Electronics, Electrical, and IoT branches/departments.
+                      The IoT Sensor Renting feature is restricted to faculty members from IoT, ECE, and Electrical departments.
                     </Text>
                   </View>
                 );
