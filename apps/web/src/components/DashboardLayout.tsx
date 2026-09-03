@@ -88,16 +88,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           {menuItems
             .filter((item) => {
               if (userRole === "student") {
-                if (item.path === "/sensors") {
-                  const branchName = (studentBranch || "").toLowerCase();
-                  const isAllowed =
-                    branchName.includes("electronics") ||
-                    branchName.includes("electrical") ||
-                    branchName.includes("ece") ||
-                    branchName.includes("eee") ||
-                    branchName.includes("ex");
-                  if (!isAllowed) return false;
-                }
                 if (item.path === "/placements") {
                   const isAllowed = studentYear >= 4 || studentSemester >= 7;
                   if (!isAllowed) return false;

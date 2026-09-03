@@ -481,16 +481,6 @@ export default function Home() {
                   {desktopApps
                     .filter((app) => {
                       if (userRole === "student") {
-                        if (app.path === "/sensors") {
-                          const branchName = (studentBranch || "").toLowerCase();
-                          const isAllowed =
-                            branchName.includes("electronics") ||
-                            branchName.includes("electrical") ||
-                            branchName.includes("ece") ||
-                            branchName.includes("eee") ||
-                            branchName.includes("ex");
-                          if (!isAllowed) return false;
-                        }
                         if (app.path === "/placements") {
                           const isAllowed = studentYear >= 4 || studentSemester >= 7;
                           if (!isAllowed) return false;

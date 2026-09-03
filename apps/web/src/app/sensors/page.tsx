@@ -241,14 +241,6 @@ export default function SensorsPage() {
     }
   };
 
-  const branchLower = (studentBranch || "").toLowerCase();
-  const isBranchAllowed =
-    branchLower.includes("electronics") ||
-    branchLower.includes("electrical") ||
-    branchLower.includes("ece") ||
-    branchLower.includes("eee") ||
-    branchLower.includes("ex");
-
   const deptLower = (facultyDept || "").toLowerCase();
   const isDeptAllowed =
     deptLower.includes("iot") ||
@@ -257,9 +249,7 @@ export default function SensorsPage() {
     deptLower.includes("ece") ||
     deptLower.includes("eee");
 
-  const isRestricted =
-    (userRole === "student" && !isBranchAllowed) ||
-    (userRole === "faculty" && !isDeptAllowed);
+  const isRestricted = userRole === "faculty" && !isDeptAllowed;
 
   if (isRestricted) {
     return (
@@ -268,7 +258,7 @@ export default function SensorsPage() {
           <span className="text-4xl">🔬</span>
           <h2 className="text-lg font-black text-rose-800">Access Restricted</h2>
           <p className="text-xs text-zinc-500 leading-relaxed">
-            The IoT Sensor Renting feature is restricted to students and faculty of <strong>Electronics, Electrical, and IoT</strong> branches/departments.
+            The IoT Sensor Renting feature is restricted to faculty members from <strong>IoT, ECE, and Electrical</strong> departments.
           </p>
         </div>
       </DashboardLayout>
