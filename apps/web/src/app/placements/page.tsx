@@ -648,7 +648,7 @@ export default function PlacementsPage() {
     }
   };
 
-  const isYearSemAllowed = studentYear >= 4 || studentSemester >= 7;
+  const isYearSemAllowed = studentYear >= 3 || studentSemester >= 6;
   const isRestricted = (userRole === "student" && !isYearSemAllowed) || userRole === "faculty";
 
   if (isRestricted) {

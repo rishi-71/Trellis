@@ -36,10 +36,39 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       setToken(savedToken);
       setUserRole(savedRole);
       setUserEmail(savedEmail);
-      setStudentBranch(localStorage.getItem("trellis_student_branch") || "");
-      setStudentYear(parseInt(localStorage.getItem("trellis_student_year") || "1"));
-      setStudentSemester(parseInt(localStorage.getItem("trellis_student_semester") || "1"));
-      setFacultyDepartment(localStorage.getItem("trellis_faculty_dept") || "");
+      
+      const initialBranch = localStorage.getItem("trellis_student_branch") || "";
+      const initialYear = parseInt(localStorage.getItem("trellis_student_year") || "1");
+      const initialSemester = parseInt(localStorage.getItem("trellis_student_semester") || "1");
+      const initialDept = localStorage.getItem("trellis_faculty_dept") || "";
+      
+      setStudentBranch(initialBranch);
+      setStudentYear(initialYear);
+      setStudentSemester(initialSemester);
+      setFacultyDepartment(initialDept);
+
+      const BACKEND_URL = "http://localhost:5000";
+      fetch(`${BACKEND_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${savedToken}` }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            if (data.user.role === "student" && data.profile) {
+              localStorage.setItem("trellis_student_branch", data.profile.branch || "");
+              localStorage.setItem("trellis_student_year", (data.profile.year || 1).toString());
+              localStorage.setItem("trellis_student_semester", (data.profile.semester || 1).toString());
+              
+              setStudentBranch(data.profile.branch || "");
+              setStudentYear(data.profile.year || 1);
+              setStudentSemester(data.profile.semester || 1);
+            } else if (data.user.role === "faculty" && data.profile) {
+              localStorage.setItem("trellis_faculty_dept", data.profile.department || "");
+              setFacultyDepartment(data.profile.department || "");
+            }
+          }
+        })
+        .catch((err) => console.error("Profile sync failed in DashboardLayout:", err));
     }
   }, [router, pathname]);
 
@@ -89,27 +118,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             .filter((item) => {
               if (userRole === "student") {
                 if (item.path === "/placements") {
-                  const isAllowed = studentYear >= 4 || studentSemester >= 7;
+                  const isAllowed = studentYear >= 3 || studentSemester >= 6;
                   if (!isAllowed) return false;
                 }
               } else if (userRole === "faculty") {
                 if (item.path === "/placements" || item.path === "/complaints") {
                   return false;
                 }
-                if (item.path === "/sensors") {
-                  const deptName = (facultyDepartment || "").toLowerCase();
-                  const isAllowed =
-                    deptName.includes("iot") ||
-                    deptName.includes("electronics") ||
-                    deptName.includes("electrical") ||
-                    deptName.includes("ece") ||
-                    deptName.includes("eee");
-                  if (!isAllowed) return false;
-                }
               }
               return true;
             })
             .map((item) => {
+              const isGated = item.path !== "/#desktop" && item.path !== "/finder";
               const isActive = pathname === item.path || (item.path === "/#desktop" && pathname === "/");
             return (
               <Link

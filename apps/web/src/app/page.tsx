@@ -101,6 +101,29 @@ export default function Home() {
       setToken(savedToken);
       setUserRole(savedRole);
       setUserEmail(savedEmail);
+      
+      const BACKEND_URL = "http://localhost:5000";
+      fetch(`${BACKEND_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${savedToken}` }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            if (data.user.role === "student" && data.profile) {
+              localStorage.setItem("trellis_student_branch", data.profile.branch || "");
+              localStorage.setItem("trellis_student_year", (data.profile.year || 1).toString());
+              localStorage.setItem("trellis_student_semester", (data.profile.semester || 1).toString());
+              
+              setStudentBranch(data.profile.branch || "");
+              setStudentYear(data.profile.year || 1);
+              setStudentSemester(data.profile.semester || 1);
+            } else if (data.user.role === "faculty" && data.profile) {
+              localStorage.setItem("trellis_faculty_dept", data.profile.department || "");
+              setFacultyDepartment(data.profile.department || "");
+            }
+          }
+        })
+        .catch((err) => console.error("Mount profile sync failed:", err));
     }
   }, []);
 
@@ -482,29 +505,18 @@ export default function Home() {
                     .filter((app) => {
                       if (userRole === "student") {
                         if (app.path === "/placements") {
-                          const isAllowed = studentYear >= 4 || studentSemester >= 7;
+                          const isAllowed = studentYear >= 3 || studentSemester >= 6;
                           if (!isAllowed) return false;
                         }
                       } else if (userRole === "faculty") {
                         if (app.path === "/placements" || app.path === "/complaints") {
                           return false;
                         }
-                        if (app.path === "/sensors") {
-                          const deptName = (facultyDepartment || "").toLowerCase();
-                          const isAllowed =
-                            deptName.includes("iot") ||
-                            deptName.includes("electronics") ||
-                            deptName.includes("electrical") ||
-                            deptName.includes("ece") ||
-                            deptName.includes("eee");
-                          if (!isAllowed) return false;
-                        }
                       }
                       return true;
                     })
-                    .slice(0, 6)
                     .map((app) => (
-                      <Link
+                      <button
                       key={app.name}
                       onClick={(e) => handleFeatureCardClick(app, e)}
                       className="p-4 bg-zinc-50 border border-zinc-200/50 rounded-2xl hover:border-emerald-300 hover:bg-emerald-50/10 transition-all flex items-center gap-4 group text-left w-full"

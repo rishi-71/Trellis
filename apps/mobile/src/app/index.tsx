@@ -116,22 +116,12 @@ export default function HomeScreen() {
               .filter((app) => {
                 if (userRole === "student") {
                   if (app.id === "placements") {
-                    const isAllowed = studentYear >= 4 || studentSemester >= 7;
+                    const isAllowed = studentYear >= 3 || studentSemester >= 6;
                     if (!isAllowed) return false;
                   }
                 } else if (userRole === "faculty") {
                   if (app.id === "placements" || app.id === "complaints") {
                     return false;
-                  }
-                  if (app.id === "sensors") {
-                    const deptName = (studentBranch || "").toLowerCase();
-                    const isAllowed =
-                      deptName.includes("iot") ||
-                      deptName.includes("electronics") ||
-                      deptName.includes("electrical") ||
-                      deptName.includes("ece") ||
-                      deptName.includes("eee");
-                    if (!isAllowed) return false;
                   }
                 }
                 return true;
@@ -172,7 +162,7 @@ export default function HomeScreen() {
             {activeApp === 'finder' && <FinderModule token={token} backendUrl={backendUrl} />}
             {activeApp === 'career' && <CareerModule token={token} backendUrl={backendUrl} />}
             {activeApp === 'placements' && (() => {
-              const isAllowed = (userRole === 'student' && (studentYear >= 4 || studentSemester >= 7)) || userRole === 'admin';
+              const isAllowed = (userRole === 'student' && (studentYear >= 3 || studentSemester >= 6)) || userRole === 'admin';
               if (!isAllowed) {
                 return (
                   <View style={{ padding: 24, alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, margin: 16 }}>
@@ -181,7 +171,7 @@ export default function HomeScreen() {
                     <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
                       {userRole === 'faculty'
                         ? 'The Placement Board is not accessible to faculty members.'
-                        : 'The Placement Board is restricted to students in their 4th Year or 7th Semester (and above).'}
+                        : 'The Placement Board is restricted to students in their 3rd Year or 6th Semester (and above).'}
                     </Text>
                   </View>
                 );

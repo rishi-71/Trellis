@@ -54,6 +54,7 @@ const noticeRoutes = require("./routes/noticeRoutes");
 const complaintRoutes = require("./routes/complaintRoutes");
 const campusRoutes = require("./routes/campusRoutes");
 const placementRoutes = require("./routes/placementRoutes");
+const resumeRoutes = require("./routes/resumeRoutes");
 
 // Database connection
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/trellis";
@@ -72,6 +73,7 @@ app.use("/api/complaints", complaintRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api", campusRoutes);
 app.use("/api/placement", placementRoutes);
+app.use("/api/resume", resumeRoutes);
 
 // Mount M7 Sensor Issuing System routes
 const sensorRoutes = require("./routes/sensorRoutes");
