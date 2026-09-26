@@ -1,4 +1,6 @@
 const Event = require("../models/Event");
+const StudentProfile = require("../models/StudentProfile");
+const User = require("../models/User");
 
 // Create event (Faculty / Admin only)
 exports.createEvent = async (req, res) => {
@@ -59,6 +61,7 @@ exports.getEventById = async (req, res) => {
 // Register for an event (Student only)
 exports.registerForEvent = async (req, res) => {
   try {
+    const { contact, name, rollNumber, branch, semester } = req.body || {};
     const event = await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ success: false, message: "Event not found" });
@@ -79,8 +82,28 @@ exports.registerForEvent = async (req, res) => {
     }
     
     // Check if already registered
-    if (event.registeredParticipants.includes(req.user.id)) {
+    const alreadyRegistered = (event.registeredParticipants || []).some(id => id.toString() === req.user.id.toString());
+    if (alreadyRegistered) {
       return res.status(400).json({ success: false, message: "You are already registered for this event" });
+    }
+    
+    // Update or ensure StudentProfile has contact and details
+    if (contact) {
+      await StudentProfile.findOneAndUpdate(
+        { user: req.user.id },
+        { $set: { contact: contact.trim() } }
+      );
+    }
+    if (name || rollNumber || branch) {
+      const updateFields = {};
+      if (name) updateFields.name = name;
+      if (rollNumber) updateFields.rollNumber = rollNumber;
+      if (branch) updateFields.branch = branch;
+      if (semester) updateFields.semester = parseInt(semester.toString());
+      await StudentProfile.findOneAndUpdate(
+        { user: req.user.id },
+        { $set: updateFields }
+      );
     }
     
     event.registeredParticipants.push(req.user.id);
@@ -92,7 +115,90 @@ exports.registerForEvent = async (req, res) => {
   }
 };
 
-// Mark event attendance (Faculty/Admin only)
+// Get registered participants for an event (Faculty / Admin only)
+exports.getEventParticipants = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ success: false, message: "Event not found" });
+    }
+
+    const isOrganizer = event.organizer && event.organizer.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+    const isFaculty = req.user.role === "faculty";
+
+    if (!isOrganizer && !isAdmin && !isFaculty) {
+      return res.status(403).json({ success: false, message: "Access restricted to event faculty and administrators" });
+    }
+
+    const userIds = event.registeredParticipants || [];
+    const attendedSet = new Set((event.attendedParticipants || []).map(id => id.toString()));
+
+    // Lookup StudentProfiles
+    const profiles = await StudentProfile.find({ user: { $in: userIds } }).populate("user", "email");
+
+    const registeredUsersMap = new Map();
+    profiles.forEach(p => {
+      const uId = p.user?._id?.toString() || p.user?.toString();
+      if (uId) {
+        registeredUsersMap.set(uId, {
+          userId: uId,
+          profileId: p._id,
+          name: p.name,
+          rollNumber: p.rollNumber,
+          email: p.user?.email || "",
+          branch: p.branch,
+          semester: p.semester || 1,
+          contact: p.contact || "",
+          attended: attendedSet.has(uId)
+        });
+      }
+    });
+
+    // Handle any users without a completed StudentProfile
+    const missingUserIds = userIds.filter(id => !registeredUsersMap.has(id.toString()));
+    if (missingUserIds.length > 0) {
+      const users = await User.find({ _id: { $in: missingUserIds } }).select("email");
+      users.forEach(u => {
+        const uId = u._id.toString();
+        registeredUsersMap.set(uId, {
+          userId: uId,
+          profileId: null,
+          name: u.email.split("@")[0],
+          rollNumber: "N/A",
+          email: u.email,
+          branch: "General",
+          semester: 1,
+          contact: "",
+          attended: attendedSet.has(uId)
+        });
+      });
+    }
+
+    // Preserve registration order
+    const participants = userIds
+      .map(id => registeredUsersMap.get(id.toString()))
+      .filter(Boolean);
+
+    res.json({
+      success: true,
+      event: {
+        _id: event._id,
+        title: event.title,
+        date: event.date,
+        venue: event.venue,
+        maxParticipants: event.maxParticipants,
+        totalRegistered: participants.length,
+        totalAttended: event.attendedParticipants?.length || 0
+      },
+      participants
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Mark / Toggle event attendance (Faculty/Admin only)
 exports.markAttendance = async (req, res) => {
   try {
     const { studentId } = req.body;
@@ -103,19 +209,23 @@ exports.markAttendance = async (req, res) => {
     }
     
     // Verify student is registered
-    if (!event.registeredParticipants.includes(studentId)) {
+    const isRegistered = (event.registeredParticipants || []).some(id => id.toString() === studentId.toString());
+    if (!isRegistered) {
       return res.status(400).json({ success: false, message: "Student is not registered for this event" });
     }
     
-    // Check if attendance already marked
-    if (event.attendedParticipants.includes(studentId)) {
-      return res.status(400).json({ success: false, message: "Attendance already marked for this student" });
+    // Toggle attendance
+    const isAttended = (event.attendedParticipants || []).some(id => id.toString() === studentId.toString());
+    if (isAttended) {
+      event.attendedParticipants = event.attendedParticipants.filter(id => id.toString() !== studentId.toString());
+      await event.save();
+      return res.json({ success: true, message: "Attendance unmarked", attended: false, event });
     }
     
     event.attendedParticipants.push(studentId);
     await event.save();
     
-    res.json({ success: true, message: "Attendance marked successfully", event });
+    res.json({ success: true, message: "Attendance marked successfully", attended: true, event });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

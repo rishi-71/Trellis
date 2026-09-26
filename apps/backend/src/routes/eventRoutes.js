@@ -12,6 +12,7 @@ router.post("/:id/register", verifyToken, verifyStudent, eventController.registe
 
 // Faculty / Admin operations
 router.post("/", verifyToken, verifyFacultyOrAdmin, eventController.createEvent);
+router.get("/:id/participants", verifyToken, verifyFacultyOrAdmin, eventController.getEventParticipants);
 router.post("/:id/attendance", verifyToken, verifyFacultyOrAdmin, eventController.markAttendance);
 router.delete("/:id", verifyToken, verifyFacultyOrAdmin, eventController.deleteEvent);
 
