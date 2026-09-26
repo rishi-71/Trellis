@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 
 export default function SensorsPage() {
   const BACKEND_URL = "http://localhost:5000";
+  const router = useRouter();
 
   const [token, setToken] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -260,6 +262,12 @@ export default function SensorsPage() {
           <p className="text-xs text-zinc-500 leading-relaxed">
             The IoT Sensor Renting feature is restricted to faculty members from <strong>IoT, ECE, and Electrical</strong> departments.
           </p>
+          <button
+            onClick={() => router.push("/")}
+            className="py-2.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+          >
+            Return to OS Desktop
+          </button>
         </div>
       </DashboardLayout>
     );

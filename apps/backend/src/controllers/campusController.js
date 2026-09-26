@@ -908,59 +908,57 @@ exports.getStudentAchievements = async (req, res) => {
 };
 
 exports.verifyAchievement = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
     const { id } = req.params;
     const { status, rejectionReason } = req.body;
     
-    const achievement = await Achievement.findById(id).session(session);
+    const achievement = await Achievement.findById(id);
     if (!achievement) {
-      await session.abortTransaction();
       return res.status(404).json({ success: false, message: "Achievement not found" });
     }
 
     if (achievement.status !== "pending") {
-      await session.abortTransaction();
       return res.status(400).json({ success: false, message: "Achievement already processed" });
     }
 
     if (status === "rejected") {
       achievement.status = "rejected";
-      achievement.rejectionReason = rejectionReason || "";
+      achievement.rejectionReason = rejectionReason || "Declined by faculty";
       achievement.verifiedBy = req.user.id;
       achievement.verifiedAt = new Date();
-      await achievement.save({ session });
-      await session.commitTransaction();
-      session.endSession();
+      await achievement.save();
       return res.json({ success: true, achievement });
     }
 
     achievement.status = "verified";
     achievement.verifiedBy = req.user.id;
     achievement.verifiedAt = new Date();
-    await achievement.save({ session });
+    await achievement.save();
 
-    const profile = await StudentProfile.findById(achievement.studentId).session(session);
+    const profile = await StudentProfile.findById(achievement.studentId);
     if (profile) {
       // Recalculate Career Tags dynamically when new achievements are verified
-      await updateCareerTagsForProfile(profile._id, session);
+      try {
+        await updateCareerTagsForProfile(profile._id);
+      } catch (tagErr) {
+        console.error("Error updating career tags on achievement verify:", tagErr);
+      }
 
-      const post = new ActivityFeedPost({
-        studentId: profile._id,
-        type: "achievement",
-        refId: achievement._id,
-        message: `${profile.name} earned verified achievement: "${achievement.title}"`
-      });
-      await post.save({ session });
+      try {
+        const post = new ActivityFeedPost({
+          studentId: profile._id,
+          type: "achievement",
+          refId: achievement._id,
+          message: `${profile.name} earned verified achievement: "${achievement.title}"`
+        });
+        await post.save();
+      } catch (postErr) {
+        console.error("Error creating activity feed post on achievement verify:", postErr);
+      }
     }
 
-    await session.commitTransaction();
-    session.endSession();
     res.json({ success: true, achievement });
   } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -1402,12 +1400,26 @@ exports.getFacultyDashboard = async (req, res) => {
     if (year) query.graduationYear = parseInt(year);
 
     let profiles = await StudentProfile.find(query).populate("user", "email").sort({ name: 1 });
-    const pendingAchievements = await Achievement.find({ status: "pending" }).populate("studentId");
+    
+    let achQuery = {};
+    if (category) achQuery.category = category;
+
+    const allAchievements = await Achievement.find(achQuery)
+      .populate("studentId")
+      .populate("verifiedBy", "email")
+      .sort({ updatedAt: -1 });
+
+    const pendingAchievements = allAchievements.filter(a => a.status === "pending");
+    const verifiedAchievements = allAchievements.filter(a => a.status === "verified");
+    const rejectedAchievements = allAchievements.filter(a => a.status === "rejected");
 
     res.json({
       success: true,
       students: profiles,
-      pendingAchievements
+      pendingAchievements,
+      verifiedAchievements,
+      rejectedAchievements,
+      allAchievements
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

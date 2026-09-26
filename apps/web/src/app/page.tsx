@@ -27,7 +27,7 @@ export default function Home() {
   const [post, setPost] = useState("");
   const [year, setYear] = useState("1");
   const [semester, setSemester] = useState("1");
-  const [facultyDept, setFacultyDept] = useState("");
+  const [facultyDept, setFacultyDept] = useState("Internet of Things (IoT)");
 
   const [studentBranch, setStudentBranch] = useState("");
   const [studentYear, setStudentYear] = useState(1);
@@ -83,7 +83,7 @@ export default function Home() {
 
   const desktopApps = [
     { name: "Campus Finder", path: "/finder", desc: "Interactive maps, buildings, rooms, facilities and indoor navigation to help you find anything across the campus.", bg: "bg-emerald-600", icon: "📍", illus: "/images/illus_finder.jpg", badge: "SMART CAMPUS SOLUTION" },
-    { name: "Events", path: "/events", desc: "Explore upcoming events, register for workshops, seminars and stay updated with all the happenings around campus.", bg: "bg-teal-600", icon: "📢", illus: "/images/illus_events.jpg" },
+    { name: "Notices and Event Management", path: "/events", desc: "Explore upcoming events, publish notices, register for workshops, seminars, and manage campus activities.", bg: "bg-teal-600", icon: "📢", illus: "/images/illus_events.jpg" },
     { name: "Career Profile", path: "/career", desc: "Build your professional identity by showcasing your skills, projects, certifications and achievements.", bg: "bg-emerald-700", icon: "👥", illus: "/images/illus_career.jpg" },
     { name: "Sensor IoT", path: "/sensors", desc: "Real-time monitoring of campus environment sensors like temperature, humidity, air quality and get instant alerts for any anomalies.", bg: "bg-emerald-800", icon: "🔬", illus: "/images/illus_sensors.jpg" },
     { name: "Placement", path: "/placements", desc: "Register for placements, upload documents and get automatically matched with eligible job opportunities posted by companies.", bg: "bg-teal-700", icon: "💼", illus: "/images/illus_placement.jpg" },
@@ -392,6 +392,14 @@ export default function Home() {
 
                   <div className="flex flex-col space-y-6 w-full max-w-5xl mx-auto">
                     {desktopApps.map((app) => {
+                      const isCareerApp = app.path === "/career";
+                      const isFaculty = userRole === "faculty" || userRole === "admin";
+                      const displayName = isCareerApp && (isFaculty || userRole !== "student") ? "Student Records and Verifications" : app.name;
+                      const displayDesc = isCareerApp && (isFaculty || userRole !== "student")
+                        ? "Verify student achievements, search student profiles by roll number or email, and discover campus talent."
+                        : app.desc;
+                      const displayIcon = isCareerApp && (isFaculty || userRole !== "student") ? "🎓" : app.icon;
+
                       return (
                         <button
                           key={app.name}
@@ -400,7 +408,7 @@ export default function Home() {
                         >
                           <div className="flex flex-col md:flex-row items-start md:items-center gap-6 flex-grow">
                             <div className="w-16 h-16 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex items-center justify-center text-3xl shrink-0 shadow-sm">
-                              {app.icon}
+                              {displayIcon}
                             </div>
                             <div className="space-y-1 flex-1">
                               {app.badge && (
@@ -411,10 +419,10 @@ export default function Home() {
                                 </div>
                               )}
                               <h4 className="text-xl font-extrabold text-zinc-950 group-hover:text-emerald-850 group-hover:underline decoration-emerald-500 transition-colors">
-                                {app.name}
+                                {displayName}
                               </h4>
                               <p className="text-xs text-zinc-500 leading-relaxed max-w-lg pt-1">
-                                {app.desc}
+                                {displayDesc}
                               </p>
                             </div>
                           </div>
@@ -512,26 +520,48 @@ export default function Home() {
                         if (app.path === "/placements" || app.path === "/complaints") {
                           return false;
                         }
+                        if (app.path === "/sensors") {
+                          const deptLower = (facultyDepartment || "").toLowerCase();
+                          const isDeptAllowed =
+                            deptLower.includes("iot") ||
+                            deptLower.includes("electronics") ||
+                            deptLower.includes("electrical") ||
+                            deptLower.includes("ece") ||
+                            deptLower.includes("eee");
+                          if (!isDeptAllowed) return false;
+                        }
                       }
                       return true;
                     })
-                    .map((app) => (
-                      <button
-                      key={app.name}
-                      onClick={(e) => handleFeatureCardClick(app, e)}
-                      className="p-4 bg-zinc-50 border border-zinc-200/50 rounded-2xl hover:border-emerald-300 hover:bg-emerald-50/10 transition-all flex items-center gap-4 group text-left w-full"
-                    >
-                      <div className={`w-10 h-10 rounded-xl ${app.bg} flex items-center justify-center text-lg text-white shadow-sm shrink-0`}>
-                        {app.icon}
-                      </div>
-                      <div>
-                        <h5 className="text-xs font-black text-emerald-800 group-hover:underline">
-                          {app.name}
-                        </h5>
-                        <p className="text-[10px] text-zinc-400 mt-0.5">{app.desc}</p>
-                      </div>
-                    </button>
-                  ))}
+                    .map((app) => {
+                      const isCareerApp = app.path === "/career";
+                      const isFaculty = userRole === "faculty" || userRole === "admin";
+                      const displayName = isCareerApp && (isFaculty || userRole !== "student")
+                        ? "Student Records and Verifications"
+                        : app.name;
+                      const displayDesc = isCareerApp && (isFaculty || userRole !== "student")
+                        ? "Verify student achievements, search student profiles by roll number or email, and discover campus talent."
+                        : app.desc;
+                      const displayIcon = isCareerApp && (isFaculty || userRole !== "student") ? "🎓" : app.icon;
+
+                      return (
+                        <button
+                          key={app.name}
+                          onClick={(e) => handleFeatureCardClick(app, e)}
+                          className="p-4 bg-zinc-50 border border-zinc-200/50 rounded-2xl hover:border-emerald-300 hover:bg-emerald-50/10 transition-all flex items-center gap-4 group text-left w-full"
+                        >
+                          <div className={`w-10 h-10 rounded-xl ${app.bg} flex items-center justify-center text-lg text-white shadow-sm shrink-0`}>
+                            {displayIcon}
+                          </div>
+                          <div>
+                            <h5 className="text-xs font-black text-emerald-800 group-hover:underline">
+                              {displayName}
+                            </h5>
+                            <p className="text-[10px] text-zinc-400 mt-0.5">{displayDesc}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
 
@@ -732,14 +762,21 @@ export default function Home() {
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Department</label>
-                        <input
-                          type="text"
+                        <select
                           required
                           value={facultyDept}
                           onChange={(e) => setFacultyDept(e.target.value)}
                           className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
-                          placeholder="IoT Dept"
-                        />
+                        >
+                          <option value="Internet of Things (IoT)">Internet of Things (IoT)</option>
+                          <option value="Electronics & Communication (ECE)">Electronics & Communication (ECE)</option>
+                          <option value="Electrical Engineering">Electrical Engineering</option>
+                          <option value="Computer Science & Engineering (CSE)">Computer Science & Engineering (CSE)</option>
+                          <option value="Computer Science & Information Technology">Computer Science & Information Technology</option>
+                          <option value="Mechanical Engineering">Mechanical Engineering</option>
+                          <option value="Civil Engineering">Civil Engineering</option>
+                          <option value="Other">Other</option>
+                        </select>
                       </div>
                     </>
                   )}

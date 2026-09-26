@@ -90,13 +90,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     );
   }
 
+  const careerMenuTitle = userRole === "faculty" || userRole === "admin"
+    ? "🎓 Student Records & Verifications"
+    : "👥 Career Hub";
+
   const menuItems = [
     { name: "🏠 OS Desktop", path: "/#desktop" },
     { name: "📍 Campus Finder", path: "/finder" },
     { name: "💼 Placements Board", path: "/placements" },
-    { name: "👥 Career Hub", path: "/career" },
+    { name: careerMenuTitle, path: "/career" },
     { name: "🔬 Sensor Renting", path: "/sensors" },
-    { name: "📢 Notices Board", path: "/events" },
+    { name: "📢 Notices and Event Management", path: "/events" },
     { name: "🔧 Service Complaints", path: "/complaints" },
     { name: "📦 Lost & Found", path: "/lostfound" },
     { name: "🚨 SOS Security", path: "/sos" },
@@ -124,6 +128,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               } else if (userRole === "faculty") {
                 if (item.path === "/placements" || item.path === "/complaints") {
                   return false;
+                }
+                if (item.path === "/sensors") {
+                  const deptLower = (facultyDepartment || "").toLowerCase();
+                  const isDeptAllowed =
+                    deptLower.includes("iot") ||
+                    deptLower.includes("electronics") ||
+                    deptLower.includes("electrical") ||
+                    deptLower.includes("ece") ||
+                    deptLower.includes("eee");
+                  if (!isDeptAllowed) return false;
                 }
               }
               return true;
