@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import PersonalInfoForm, { PersonalInfo } from "./PersonalInfoForm";
 import EducationForm, { EducationItem } from "./EducationForm";
 import SkillsForm, { SkillsData } from "./SkillsForm";
@@ -67,54 +67,12 @@ export default function ResumeBuilder() {
     }
   }, []);
 
-  // Fetch initial profile & saved resumes
-  useEffect(() => {
-    if (token && userEmail) {
-      loadInitialData();
-    }
-  }, [token, userEmail]);
-
   const showStatus = (text: string, type: "success" | "error" | "info" = "success") => {
     setStatusMessage({ text, type });
     setTimeout(() => setStatusMessage(null), 4000);
   };
 
-  const loadInitialData = async () => {
-    try {
-      // 1. Check for existing saved resumes
-      const resResumes = await fetch(`${BACKEND_URL}/api/resume`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const dataResumes = await resResumes.json();
-      
-      if (dataResumes.success && dataResumes.resumes && dataResumes.resumes.length > 0) {
-        setSavedResumesList(dataResumes.resumes);
-        const latestResume = dataResumes.resumes[0];
-        setResumeId(latestResume._id);
-        setResumeTitle(latestResume.title || "My Professional Resume");
-        setTemplate(latestResume.template || "modern");
-        setResumeData({
-          personalInfo: latestResume.personalInfo || defaultResumeData.personalInfo,
-          summary: latestResume.summary || "",
-          education: latestResume.education || [],
-          skills: latestResume.skills || defaultResumeData.skills,
-          projects: latestResume.projects || [],
-          experience: latestResume.experience || [],
-          certifications: latestResume.certifications || [],
-          achievements: latestResume.achievements || []
-        });
-        showStatus("Loaded your saved resume!", "info");
-      } else {
-        // 2. Pre-fill from Student Career Profile
-        await prefillFromCareerProfile();
-      }
-    } catch (err) {
-      console.error("Failed to load initial resume data:", err);
-      prefillFromCareerProfile();
-    }
-  };
-
-  const prefillFromCareerProfile = async () => {
+  const prefillFromCareerProfile = useCallback(async () => {
     if (!token || !userEmail) return;
     try {
       const res = await fetch(`${BACKEND_URL}/api/profile/${userEmail}`, {
@@ -251,7 +209,49 @@ export default function ResumeBuilder() {
     } catch (err) {
       console.error("Error prefilling from profile:", err);
     }
-  };
+  }, [token, userEmail]);
+
+  const loadInitialData = useCallback(async () => {
+    try {
+      // 1. Check for existing saved resumes
+      const resResumes = await fetch(`${BACKEND_URL}/api/resume`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const dataResumes = await resResumes.json();
+      
+      if (dataResumes.success && dataResumes.resumes && dataResumes.resumes.length > 0) {
+        setSavedResumesList(dataResumes.resumes);
+        const latestResume = dataResumes.resumes[0];
+        setResumeId(latestResume._id);
+        setResumeTitle(latestResume.title || "My Professional Resume");
+        setTemplate(latestResume.template || "modern");
+        setResumeData({
+          personalInfo: latestResume.personalInfo || defaultResumeData.personalInfo,
+          summary: latestResume.summary || "",
+          education: latestResume.education || [],
+          skills: latestResume.skills || defaultResumeData.skills,
+          projects: latestResume.projects || [],
+          experience: latestResume.experience || [],
+          certifications: latestResume.certifications || [],
+          achievements: latestResume.achievements || []
+        });
+        showStatus("Loaded your saved resume!", "info");
+      } else {
+        // 2. Pre-fill from Student Career Profile
+        await prefillFromCareerProfile();
+      }
+    } catch (err) {
+      console.error("Failed to load initial resume data:", err);
+      prefillFromCareerProfile();
+    }
+  }, [token, prefillFromCareerProfile]);
+
+  // Fetch initial profile & saved resumes
+  useEffect(() => {
+    if (token && userEmail) {
+      loadInitialData();
+    }
+  }, [token, userEmail, loadInitialData]);
 
   const handleSaveResume = async () => {
     if (!token) return;

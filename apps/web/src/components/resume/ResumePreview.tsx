@@ -30,7 +30,6 @@ interface ResumePreviewProps {
 
 export default function ResumePreview({ data, template, onDownloadPdf, isDownloading = false }: ResumePreviewProps) {
   const [scale, setScale] = useState<number>(1);
-  const pInfo = data.personalInfo || ({} as PersonalInfo);
 
   return (
     <div className="flex flex-col h-full space-y-3">

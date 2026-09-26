@@ -5,11 +5,13 @@ const { verifyToken } = require("../middleware/auth");
 
 // 1. SENSOR CATALOG ENDPOINTS
 router.get("/sensors", verifyToken, sensorController.listSensors);
+router.get("/sensors/:sensorId/issued-students", verifyToken, sensorController.getSensorIssuedStudents);
 router.post("/sensors", verifyToken, sensorController.createSensor);
 router.patch("/sensors/:id", verifyToken, sensorController.updateSensor);
 
 // 2. REQUESTS lifecycles
 router.post("/sensor-requests", verifyToken, sensorController.submitRequest);
+router.get("/sensor-requests/all", verifyToken, sensorController.getAllRequests);
 router.get("/sensor-requests/pending", verifyToken, sensorController.getPendingRequests);
 router.get("/sensor-requests/:studentId", verifyToken, sensorController.getStudentRequests);
 router.patch("/sensor-requests/:id/approve", verifyToken, sensorController.approveRequest);

@@ -70,9 +70,25 @@ exports.updateSensor = async (req, res) => {
 // 2. REQUEST & APPROVAL FLOW
 exports.submitRequest = async (req, res) => {
   try {
-    const { sensorId, purpose, projectName, requestedFrom, requestedTo } = req.body;
-    if (!sensorId || !purpose || !projectName || !requestedFrom || !requestedTo) {
-      return res.status(400).json({ success: false, message: "Missing request parameters." });
+    const { 
+      sensorId, 
+      studentName, 
+      studentEmail, 
+      enrollmentNo, 
+      branch, 
+      phone, 
+      duration, 
+      purpose, 
+      projectName, 
+      requestedFrom, 
+      requestedTo 
+    } = req.body;
+
+    if (!sensorId || !studentName || !enrollmentNo || !branch || !phone || !purpose) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Missing required request fields: Student Name, Enrollment No, Branch, Phone Number, and Purpose are required." 
+      });
     }
 
     const sensor = await Sensor.findById(sensorId);
@@ -80,18 +96,42 @@ exports.submitRequest = async (req, res) => {
       return res.status(404).json({ success: false, message: "Sensor not found in catalog." });
     }
 
+    if (sensor.availableQuantity <= 0) {
+      return res.status(400).json({ success: false, message: "This sensor is currently out of stock (Available: 0)." });
+    }
+
+    const email = studentEmail || (req.user && req.user.email) || "student@ips.edu";
+    const fromDate = requestedFrom ? new Date(requestedFrom) : new Date();
+    let toDate = requestedTo ? new Date(requestedTo) : null;
+    
+    if (!toDate) {
+      const days = parseInt(duration) || 7;
+      toDate = new Date(fromDate.getTime() + days * 24 * 60 * 60 * 1000);
+    }
+
     const newRequest = new SensorRequest({
-      studentId: req.user.id,
-      sensorId,
+      studentId: req.user ? req.user.id : undefined,
+      studentName,
+      studentEmail: email,
+      enrollmentNo,
+      branch,
+      phone,
+      duration: duration || "7 Days",
       purpose,
-      projectName,
-      requestedFrom: new Date(requestedFrom),
-      requestedTo: new Date(requestedTo),
+      projectName: projectName || "Academic Lab Work",
+      sensorId,
+      sensorName: sensor.name,
+      requestedFrom: fromDate,
+      requestedTo: toDate,
       status: "pending"
     });
 
     await newRequest.save();
-    res.status(201).json({ success: true, message: "Sensor request submitted and pending manual faculty review.", request: newRequest });
+    res.status(201).json({ 
+      success: true, 
+      message: "Sensor rental request submitted successfully! Pending faculty review.", 
+      request: newRequest 
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -100,14 +140,14 @@ exports.submitRequest = async (req, res) => {
 exports.getStudentRequests = async (req, res) => {
   try {
     const { studentId } = req.params;
-    // Resolve email if studentId is email
-    let resolvedStudentId = studentId;
+    let query = {};
     if (studentId.includes("@")) {
-      const user = await User.findOne({ email: studentId });
-      if (user) resolvedStudentId = user._id;
+      query = { studentEmail: studentId };
+    } else {
+      query = { $or: [{ studentId }, { studentEmail: studentId }, { enrollmentNo: studentId }] };
     }
 
-    const requests = await SensorRequest.find({ studentId: resolvedStudentId })
+    const requests = await SensorRequest.find(query)
       .populate("sensorId")
       .populate("approvedBy", "email")
       .sort({ createdAt: -1 });
@@ -122,7 +162,34 @@ exports.getPendingRequests = async (req, res) => {
   try {
     const requests = await SensorRequest.find({ status: "pending" })
       .populate("sensorId")
-      .populate("studentId", "email");
+      .populate("studentId", "email")
+      .sort({ createdAt: -1 });
+    res.json({ success: true, requests });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getAllRequests = async (req, res) => {
+  try {
+    const requests = await SensorRequest.find()
+      .populate("sensorId")
+      .populate("studentId", "email")
+      .sort({ createdAt: -1 });
+    res.json({ success: true, requests });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getSensorIssuedStudents = async (req, res) => {
+  try {
+    const { sensorId } = req.params;
+    const requests = await SensorRequest.find({
+      sensorId,
+      status: { $in: ["approved", "issued", "returned", "pending"] }
+    }).sort({ createdAt: -1 });
+
     res.json({ success: true, requests });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -143,13 +210,45 @@ exports.approveRequest = async (req, res) => {
       return res.status(404).json({ success: false, message: "Request not found." });
     }
 
+    const sensor = await Sensor.findById(request.sensorId);
+    if (!sensor) {
+      return res.status(404).json({ success: false, message: "Sensor item not found in catalog." });
+    }
+
+    if (decision === "approved") {
+      if (request.status === "pending" || request.status === "rejected") {
+        if (sensor.availableQuantity <= 0) {
+          return res.status(400).json({ success: false, message: "Cannot approve: sensor available quantity is 0." });
+        }
+        sensor.availableQuantity -= 1;
+        await sensor.save();
+      }
+      request.issuedAt = new Date();
+      if (!request.dueAt) {
+        const days = parseInt(request.duration) || 7;
+        request.dueAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      }
+    } else if (decision === "rejected") {
+      // If was previously approved or issued and is now rejected, restore quantity
+      if (request.status === "approved" || request.status === "issued") {
+        sensor.availableQuantity += 1;
+        await sensor.save();
+      }
+    }
+
     request.status = decision;
-    request.approvedBy = req.user.id;
+    request.approvedBy = req.user ? req.user.id : undefined;
+    request.approverName = (req.user && (req.user.name || req.user.email)) || "Faculty Reviewer";
     request.approvalNote = approvalNote || "";
     request.approvedAt = new Date();
 
     await request.save();
-    res.json({ success: true, message: `Request successfully ${decision}.`, request });
+    res.json({ 
+      success: true, 
+      message: `Request successfully ${decision}. Sensor available stock is now ${sensor.availableQuantity}.`, 
+      request, 
+      sensor 
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -164,31 +263,28 @@ exports.issueRequest = async (req, res) => {
       return res.status(404).json({ success: false, message: "Request not found." });
     }
 
-    if (request.status !== "approved") {
-      return res.status(400).json({ success: false, message: "Only approved sensor requests can be marked as Issued." });
-    }
-
     const sensor = await Sensor.findById(request.sensorId);
     if (!sensor) {
       return res.status(404).json({ success: false, message: "Related sensor not found." });
     }
 
-    if (sensor.availableQuantity <= 0) {
-      return res.status(400).json({ success: false, message: "No available inventory to issue this sensor." });
+    if (request.status === "pending") {
+      if (sensor.availableQuantity <= 0) {
+        return res.status(400).json({ success: false, message: "No available inventory to issue this sensor." });
+      }
+      sensor.availableQuantity -= 1;
+      await sensor.save();
     }
 
-    // Decrement inventory
-    sensor.availableQuantity -= 1;
-    await sensor.save();
-
-    // Mark as issued
-    const durationMs = request.requestedTo.getTime() - request.requestedFrom.getTime();
     request.status = "issued";
     request.issuedAt = new Date();
-    request.dueAt = new Date(Date.now() + durationMs);
+    if (!request.dueAt) {
+      const days = parseInt(request.duration) || 7;
+      request.dueAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    }
 
     await request.save();
-    res.json({ success: true, message: "Sensor marked as Issued. Availability decremented.", request });
+    res.json({ success: true, message: "Sensor marked as Issued.", request, sensor });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -199,34 +295,32 @@ exports.returnRequest = async (req, res) => {
     const { id } = req.params;
     const { condition, notes } = req.body; // condition: 'ok' or 'damaged'
 
-    if (!["ok", "damaged"].includes(condition)) {
-      return res.status(400).json({ success: false, message: "Invalid return condition." });
-    }
-
     const request = await SensorRequest.findById(id);
     if (!request) {
       return res.status(404).json({ success: false, message: "Request not found." });
     }
 
-    if (!["issued", "overdue"].includes(request.status)) {
-      return res.status(400).json({ success: false, message: "Only issued or overdue sensors can be marked as Returned." });
+    if (request.status === "returned") {
+      return res.status(400).json({ success: false, message: "Sensor is already returned." });
     }
 
     const sensor = await Sensor.findById(request.sensorId);
-    if (!sensor) {
-      return res.status(404).json({ success: false, message: "Related sensor not found." });
+    if (sensor) {
+      // Increment available inventory
+      sensor.availableQuantity = Math.min(sensor.totalQuantity, sensor.availableQuantity + 1);
+      if (condition === "damaged") {
+        sensor.unitConditionLog.push({
+          condition: "damaged",
+          notes: notes || "Damaged during student loan",
+          updatedAt: new Date()
+        });
+      }
+      await sensor.save();
     }
 
-    // Always increment availableQuantity when item physically returns (ok or damaged)
-    sensor.availableQuantity += 1;
-    await sensor.save();
-
-    const returnedAt = new Date();
-    const originalStatus = request.status;
-
     request.status = "returned";
-    request.returnedAt = returnedAt;
-    request.returnCondition = condition;
+    request.returnedAt = new Date();
+    request.returnCondition = condition || "ok";
     await request.save();
 
     let fineCreated = null;
