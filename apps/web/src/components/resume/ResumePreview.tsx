@@ -152,21 +152,32 @@ function ModernResumeView({ data }: { data: ResumeData }) {
           <h2 className="text-[12px] font-bold text-teal-800 uppercase tracking-wider border-b border-zinc-200 pb-0.5">
             Education
           </h2>
-          <div className="space-y-2 pt-1">
-            {data.education.map((edu, idx) => (
-              <div key={idx} className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-zinc-900 text-[12px]">
-                    {edu.degree ? `${edu.degree} in ` : ""}{edu.branch || edu.institution}
-                  </h3>
-                  <p className="text-zinc-600 text-[11px]">{edu.institution}</p>
+          <div className="space-y-2.5 pt-1">
+            {data.education.map((edu, idx) => {
+              const eduTitle = edu.degree && edu.branch
+                ? (edu.level === "10th" || edu.level === "12th" ? `${edu.degree} • ${edu.branch}` : `${edu.degree} in ${edu.branch}`)
+                : (edu.degree || edu.branch || edu.institution);
+              const dateStr = edu.startYear && edu.endYear
+                ? `${edu.startYear} - ${edu.endYear}`
+                : edu.endYear
+                ? `Passing Year: ${edu.endYear}`
+                : edu.startYear || "Present";
+
+              return (
+                <div key={idx} className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-zinc-900 text-[12px]">
+                      {eduTitle}
+                    </h3>
+                    <p className="text-zinc-600 text-[11px]">{edu.institution}</p>
+                  </div>
+                  <div className="text-right text-[11px] text-zinc-500 shrink-0">
+                    <p className="font-medium">{dateStr}</p>
+                    {edu.cgpa && <p className="font-semibold text-teal-800">Score: {edu.cgpa}</p>}
+                  </div>
                 </div>
-                <div className="text-right text-[11px] text-zinc-500 shrink-0">
-                  <p className="font-medium">{edu.startYear || edu.endYear ? `${edu.startYear || ""} - ${edu.endYear || "Present"}` : ""}</p>
-                  {edu.cgpa && <p className="font-semibold text-teal-800">CGPA: {edu.cgpa}</p>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -354,21 +365,32 @@ function ClassicResumeView({ data }: { data: ResumeData }) {
           <h2 className="text-[12px] font-bold uppercase tracking-wider text-zinc-900 border-b border-zinc-300 pb-0.5">
             Education
           </h2>
-          <div className="space-y-2 pt-1">
-            {data.education.map((edu, idx) => (
-              <div key={idx} className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-zinc-900 text-[12px]">{edu.institution}</h3>
-                  <p className="text-zinc-700 italic text-[11px]">
-                    {edu.degree ? `${edu.degree}, ` : ""}{edu.branch}
-                  </p>
+          <div className="space-y-2.5 pt-1">
+            {data.education.map((edu, idx) => {
+              const eduSubtitle = [edu.degree, edu.branch].filter(Boolean).join(" • ");
+              const dateStr = edu.startYear && edu.endYear
+                ? `${edu.startYear} - ${edu.endYear}`
+                : edu.endYear
+                ? `Passing Year: ${edu.endYear}`
+                : edu.startYear || "Present";
+
+              return (
+                <div key={idx} className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-zinc-900 text-[12px]">{edu.institution}</h3>
+                    {eduSubtitle && (
+                      <p className="text-zinc-700 italic text-[11px]">
+                        {eduSubtitle}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right text-[11px] text-zinc-600">
+                    <p className="italic">{dateStr}</p>
+                    {edu.cgpa && <p className="font-semibold">Score: {edu.cgpa}</p>}
+                  </div>
                 </div>
-                <div className="text-right text-[11px] text-zinc-600">
-                  <p className="italic">{edu.startYear || edu.endYear ? `${edu.startYear || ""} - ${edu.endYear || "Present"}` : ""}</p>
-                  {edu.cgpa && <p className="font-semibold">CGPA: {edu.cgpa}</p>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -600,15 +622,24 @@ function AtsResumeView({ data }: { data: ResumeData }) {
             Education
           </h2>
           <div className="space-y-2 pt-1">
-            {data.education.map((edu, idx) => (
-              <div key={idx} className="flex justify-between items-baseline text-[11.5px]">
-                <div>
-                  <span className="font-bold">{edu.institution}</span>
-                  <span className="block">{edu.degree ? `${edu.degree} - ` : ""}{edu.branch}{edu.cgpa ? ` (CGPA: ${edu.cgpa})` : ""}</span>
+            {data.education.map((edu, idx) => {
+              const detailStr = [edu.degree, edu.branch].filter(Boolean).join(" - ");
+              const dateStr = edu.startYear && edu.endYear
+                ? `${edu.startYear} - ${edu.endYear}`
+                : edu.endYear
+                ? `Passing Year: ${edu.endYear}`
+                : edu.startYear || "Present";
+
+              return (
+                <div key={idx} className="flex justify-between items-baseline text-[11.5px]">
+                  <div>
+                    <span className="font-bold">{edu.institution}</span>
+                    <span className="block">{detailStr}{edu.cgpa ? ` (Score: ${edu.cgpa})` : ""}</span>
+                  </div>
+                  <span className="shrink-0">{dateStr}</span>
                 </div>
-                <span className="shrink-0">{edu.startYear || edu.endYear ? `${edu.startYear || ""} - ${edu.endYear || "Present"}` : ""}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

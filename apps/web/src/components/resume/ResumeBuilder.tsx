@@ -87,6 +87,7 @@ export default function ResumeBuilder() {
         const initialEducation: EducationItem[] = [];
         if (p.education?.graduation && (p.education.graduation.courseBranch || p.education.graduation.universityName)) {
           initialEducation.push({
+            level: "graduation",
             institution: p.education.graduation.universityName || "IPS Academy Institute of Engineering",
             degree: "Bachelor of Technology",
             branch: p.education.graduation.courseBranch || p.branch || "",
@@ -97,8 +98,9 @@ export default function ResumeBuilder() {
         }
         if (p.education?.twelfth && (p.education.twelfth.schoolName || p.education.twelfth.percentageOrCgpa)) {
           initialEducation.push({
+            level: "12th",
             institution: p.education.twelfth.schoolName || "",
-            degree: "12th Standard / Higher Secondary",
+            degree: "Class XII (Senior Secondary)",
             branch: p.education.twelfth.board || "CBSE / State Board",
             startYear: (p.education.twelfth.yearOfPassing ? (p.education.twelfth.yearOfPassing - 2).toString() : ""),
             endYear: p.education.twelfth.yearOfPassing?.toString() || "",
@@ -107,8 +109,9 @@ export default function ResumeBuilder() {
         }
         if (p.education?.tenth && (p.education.tenth.schoolName || p.education.tenth.percentageOrCgpa)) {
           initialEducation.push({
+            level: "10th",
             institution: p.education.tenth.schoolName || "",
-            degree: "10th Standard / Secondary School",
+            degree: "Class X (Secondary School)",
             branch: p.education.tenth.board || "CBSE / State Board",
             startYear: "",
             endYear: p.education.tenth.yearOfPassing?.toString() || "",
@@ -527,6 +530,7 @@ export default function ResumeBuilder() {
                 <EducationForm
                   education={resumeData.education}
                   onChange={(updated) => setResumeData({ ...resumeData, education: updated })}
+                  onAutoFillFromProfile={prefillFromCareerProfile}
                 />
               )}
 

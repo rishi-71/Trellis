@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 
 const EducationItemSchema = new mongoose.Schema({
+  level: { type: String, default: "graduation" }, // "graduation" | "12th" | "10th" | "other"
   institution: { type: String, default: "" },
   degree: { type: String, default: "" },
   branch: { type: String, default: "" },
