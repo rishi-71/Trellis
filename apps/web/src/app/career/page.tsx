@@ -14,7 +14,7 @@ export default function CareerPage() {
   const [loading, setLoading] = useState(false);
 
   // M4 Tab States
-  const [careerHubTab, setCareerHubTab] = useState<"profile" | "resume" | "achievements" | "discovery">("profile");
+  const [careerHubTab, setCareerHubTab] = useState<"profile" | "resume" | "achievements" | "discovery" | "verifications">("profile");
   const [activeResumeTemplate, setActiveResumeTemplate] = useState<string>("minimal");
   const [savedResumes, setSavedResumes] = useState<any[]>([]);
   const [newResumeName, setNewResumeName] = useState("My Main Resume");
@@ -29,6 +29,13 @@ export default function CareerPage() {
   const [publicProfileData, setPublicProfileData] = useState<any>(null);
   const [isPublicProfileOpen, setIsPublicProfileOpen] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+
+  // Student Credential Lookup States (Faculty/Admin)
+  const [searchedStudentCred, setSearchedStudentCred] = useState("");
+  const [searchedStudentProfile, setSearchedStudentProfile] = useState<any>(null);
+  const [searchedStudentStats, setSearchedStudentStats] = useState<any>(null);
+  const [searchStudentLoading, setSearchStudentLoading] = useState(false);
+  const [searchStudentError, setSearchStudentError] = useState("");
 
   // Student Profile fields
   const [profile, setProfile] = useState<any>(null);
@@ -103,6 +110,9 @@ export default function CareerPage() {
   // Faculty views
   const [facultyDashboardStudents, setFacultyDashboardStudents] = useState<any[]>([]);
   const [facultyDashboardPendingAch, setFacultyDashboardPendingAch] = useState<any[]>([]);
+  const [facultyDashboardVerifiedAch, setFacultyDashboardVerifiedAch] = useState<any[]>([]);
+  const [facultyDashboardRejectedAch, setFacultyDashboardRejectedAch] = useState<any[]>([]);
+  const [facultyAchTab, setFacultyAchTab] = useState<"pending" | "rejected" | "verified">("pending");
 
   useEffect(() => {
     const savedToken = localStorage.getItem("trellis_token");
@@ -112,17 +122,22 @@ export default function CareerPage() {
       setToken(savedToken);
       setUserRole(savedRole);
       setUserEmail(savedEmail);
+      if (savedRole === "faculty" || savedRole === "admin") {
+        setCareerHubTab("verifications");
+      }
     }
   }, []);
 
   useEffect(() => {
     if (token && userEmail) {
-      fetchStudentProfileData();
-      fetchActivityFeed(feedScope);
-      handleDiscoverSearch("");
       if (userRole === "admin" || userRole === "faculty") {
         fetchFacultyDashboardData();
+        setCareerHubTab((prev) => (prev === "profile" || prev === "resume" || prev === "achievements" ? "verifications" : prev));
+      } else {
+        fetchStudentProfileData();
       }
+      fetchActivityFeed(feedScope);
+      handleDiscoverSearch("");
     }
   }, [token, userEmail, userRole, feedScope]);
 
@@ -149,7 +164,36 @@ export default function CareerPage() {
     }
   }, [profile]);
 
+  const handleStudentCredentialLookup = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const query = searchedStudentCred.trim();
+    if (!query) return;
+
+    setSearchStudentLoading(true);
+    setSearchStudentError("");
+    setSearchedStudentProfile(null);
+    setSearchedStudentStats(null);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/students/profile/${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success && data.profile) {
+        setSearchedStudentProfile(data.profile);
+        setSearchedStudentStats(data.stats || null);
+      } else {
+        setSearchStudentError(data.message || `No student profile found for "${query}". Please check the roll number or email.`);
+      }
+    } catch (err) {
+      setSearchStudentError("Could not reach backend to lookup student profile.");
+    } finally {
+      setSearchStudentLoading(false);
+    }
+  };
+
   const fetchStudentProfileData = async () => {
+    if (userRole === "faculty" || userRole === "admin") return;
     try {
       const response = await fetch(`${BACKEND_URL}/api/profile/${userEmail}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -260,6 +304,8 @@ export default function CareerPage() {
       if (data.success) {
         setFacultyDashboardStudents(data.students || []);
         setFacultyDashboardPendingAch(data.pendingAchievements || []);
+        setFacultyDashboardVerifiedAch(data.verifiedAchievements || []);
+        setFacultyDashboardRejectedAch(data.rejectedAchievements || []);
       }
     } catch (err) {
       console.error(err);
@@ -666,7 +712,13 @@ export default function CareerPage() {
   };
 
   const handleVerifyAchievementAction = async (achId: string, status: "verified" | "rejected") => {
-    const rejectionReason = status === "rejected" ? prompt("Enter rejection reason:") || "Rejection reason unspecified." : "";
+    let rejectionReason = "";
+    if (status === "rejected") {
+      const reasonInput = prompt("Enter the reason for declining this achievement claim:");
+      if (reasonInput === null) return; // User cancelled
+      rejectionReason = reasonInput.trim() || "Declined by faculty (Criteria not met)";
+    }
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/achievements/${achId}/verify`, {
         method: "PATCH",
@@ -678,11 +730,14 @@ export default function CareerPage() {
       });
       const data = await response.json();
       if (data.success) {
-        alert(`Achievement ${status}!`);
+        alert(status === "verified" ? "Achievement approved successfully!" : "Achievement claim declined.");
         fetchFacultyDashboardData();
+        if (profile?._id) fetchMyAchievements();
+      } else {
+        alert(data.message || "Verification update failed.");
       }
     } catch (err) {
-      alert("Verification update failed.");
+      alert("Verification update failed. Network or server error.");
     }
   };
 
@@ -854,16 +909,28 @@ export default function CareerPage() {
   };
 
   const timelineData = compileTimeline();
+  const isFaculty = userRole === "faculty" || userRole === "admin";
 
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto space-y-8">
 
         {/* Header Ribbon */}
-        <div className="flex justify-between items-center bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm gap-4">
           <div>
-            <h3 className="text-xl font-black text-emerald-800">Professional Identity & Career Hub</h3>
-            <p className="text-xs text-zinc-500 mt-1">Design portfolio, timeline, verified records, and chat with colleagues.</p>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-100">
+                {isFaculty ? "Campus Faculty Portal" : "Student Portfolio OS"}
+              </span>
+            </div>
+            <h3 className="text-xl font-black text-emerald-850">
+              {isFaculty ? "Student Records & Verifications" : "Professional Identity & Career Hub"}
+            </h3>
+            <p className="text-xs text-zinc-500 mt-1">
+              {isFaculty
+                ? "Verify student achievement certificates, look up student profiles by roll number or email, and discover campus talent."
+                : "Design portfolio, timeline, verified records, and chat with colleagues."}
+            </p>
           </div>
           <div className="flex gap-3">
             <Link
@@ -878,29 +945,243 @@ export default function CareerPage() {
         {/* Tab Controls */}
         <div className="flex justify-between items-center bg-zinc-100 p-2 rounded-2xl border border-zinc-200/50">
           <div className="flex gap-2">
-            {(["profile", "resume", "achievements", "discovery"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setCareerHubTab(tab)}
-                className={`py-2 px-6 rounded-xl text-xs font-bold transition-all ${careerHubTab === tab ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
+            {isFaculty ? (
+              <>
+                <button
+                  onClick={() => setCareerHubTab("verifications")}
+                  className={`py-2 px-6 rounded-xl text-xs font-bold transition-all ${
+                    careerHubTab === "verifications" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
                   }`}
-              >
-                {tab === "profile" && "👤 My Profile"}
-                {tab === "resume" && "📄 Resume Builder"}
-                {tab === "achievements" && "🎖️ Achievements"}
-                {tab === "discovery" && "🔍 Student Discovery"}
-              </button>
-            ))}
+                >
+                  🎖️ Student Verifications
+                </button>
+                <button
+                  onClick={() => setCareerHubTab("discovery")}
+                  className={`py-2 px-6 rounded-xl text-xs font-bold transition-all ${
+                    careerHubTab === "discovery" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
+                  }`}
+                >
+                  🔍 Student Discovery & Lookup
+                </button>
+              </>
+            ) : (
+              (["profile", "resume", "achievements", "discovery"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setCareerHubTab(tab)}
+                  className={`py-2 px-6 rounded-xl text-xs font-bold transition-all ${
+                    careerHubTab === tab ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
+                  }`}
+                >
+                  {tab === "profile" && "👤 My Profile"}
+                  {tab === "resume" && "📄 Resume Builder"}
+                  {tab === "achievements" && "🎖️ Achievements"}
+                  {tab === "discovery" && "🔍 Student Discovery"}
+                </button>
+              ))
+            )}
           </div>
-          {profile && (
+          {!isFaculty && profile && (
             <div className="text-xs text-zinc-500 pr-4">
               Profile Completion: <span className="font-extrabold text-emerald-600">{profile.profileCompletionPercent || 0}%</span>
             </div>
           )}
+          {isFaculty && (
+            <div className="text-xs text-zinc-500 pr-4 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Faculty Verification Desk
+            </div>
+          )}
         </div>
 
-        {/* Tab 1: Profile Display & Timelines */}
-        {careerHubTab === "profile" && (
+        {/* Section 1 for Faculty: Student Verifications */}
+        {isFaculty && careerHubTab === "verifications" && (
+          <div className="bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-4">
+              <div>
+                <h4 className="text-base font-extrabold text-zinc-900">Faculty Verification & Achievement Claims</h4>
+                <p className="text-[11px] text-zinc-500">Review student co-curricular certificates, approve points, or decline invalid submissions.</p>
+              </div>
+
+              {/* Sub-Tabs: Pending, Declined, Approved */}
+              <div className="flex bg-zinc-100 p-1 rounded-xl self-start sm:self-auto gap-1">
+                <button
+                  onClick={() => setFacultyAchTab("pending")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    facultyAchTab === "pending"
+                      ? "bg-white text-zinc-900 shadow-sm"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  <span>Pending</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    facultyDashboardPendingAch.length > 0 ? "bg-amber-100 text-amber-800" : "bg-zinc-200 text-zinc-600"
+                  }`}>
+                    {facultyDashboardPendingAch.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setFacultyAchTab("rejected")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    facultyAchTab === "rejected"
+                      ? "bg-white text-rose-700 shadow-sm"
+                      : "text-zinc-600 hover:text-rose-700"
+                  }`}
+                >
+                  <span>Declined</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    facultyDashboardRejectedAch.length > 0 ? "bg-rose-100 text-rose-800" : "bg-zinc-200 text-zinc-600"
+                  }`}>
+                    {facultyDashboardRejectedAch.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setFacultyAchTab("verified")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    facultyAchTab === "verified"
+                      ? "bg-white text-emerald-800 shadow-sm"
+                      : "text-zinc-600 hover:text-emerald-800"
+                  }`}
+                >
+                  <span>Approved</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    facultyDashboardVerifiedAch.length > 0 ? "bg-emerald-100 text-emerald-800" : "bg-zinc-200 text-zinc-600"
+                  }`}>
+                    {facultyDashboardVerifiedAch.length}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Tab content */}
+            <div className="space-y-3">
+              {facultyAchTab === "pending" && (
+                facultyDashboardPendingAch.length === 0 ? (
+                  <p className="text-xs text-zinc-400 italic py-4 text-center">No pending achievement claims awaiting verification.</p>
+                ) : (
+                  facultyDashboardPendingAch.map((ach) => (
+                    <div key={ach._id} className="border border-amber-100 rounded-2xl p-4 bg-amber-50/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h5 className="font-extrabold text-zinc-900 text-xs">{ach.title}</h5>
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-amber-100 text-amber-800">
+                            Pending
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-600 mt-1">
+                          Submitted by: <span className="font-bold text-zinc-800">{ach.studentId?.name || "Student"}</span> | Branch: <span className="font-semibold">{ach.studentId?.branch || "N/A"}</span> | Category: <span className="uppercase font-bold text-emerald-700">{ach.category}</span> | Level: <span className="uppercase font-bold text-indigo-700">{ach.level}</span>
+                        </p>
+                        <p className="text-[11px] text-zinc-700 mt-1.5 italic">"{ach.description}"</p>
+                        {ach.proofUrl && (
+                          <a href={ach.proofUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 hover:underline font-bold inline-flex items-center gap-1 mt-1.5">
+                            📄 View Uploaded Certificate / Proof
+                          </a>
+                        )}
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          onClick={() => handleVerifyAchievementAction(ach._id, "verified")}
+                          className="py-1.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
+                        >
+                          ✓ Approve
+                        </button>
+                        <button
+                          onClick={() => handleVerifyAchievementAction(ach._id, "rejected")}
+                          className="py-1.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
+                        >
+                          ✕ Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+
+              {facultyAchTab === "rejected" && (
+                facultyDashboardRejectedAch.length === 0 ? (
+                  <p className="text-xs text-zinc-400 italic py-4 text-center">No declined achievement claims.</p>
+                ) : (
+                  facultyDashboardRejectedAch.map((ach) => (
+                    <div key={ach._id} className="border border-rose-100 rounded-2xl p-4 bg-rose-50/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h5 className="font-extrabold text-zinc-900 text-xs">{ach.title}</h5>
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-rose-100 text-rose-800">
+                            Declined
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-600 mt-1">
+                          Submitted by: <span className="font-bold text-zinc-800">{ach.studentId?.name || "Student"}</span> | Category: <span className="uppercase font-bold">{ach.category}</span> | Level: <span className="uppercase font-bold">{ach.level}</span>
+                        </p>
+                        <p className="text-[11px] text-zinc-700 mt-1 italic">"{ach.description}"</p>
+                        <div className="mt-2 text-[11px] text-rose-700 bg-rose-50 p-2 rounded-lg border border-rose-100">
+                          <span className="font-bold">Decline Reason:</span> {ach.rejectionReason || "Criteria not met"}
+                        </div>
+                        {ach.proofUrl && (
+                          <a href={ach.proofUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 hover:underline font-bold inline-flex items-center gap-1 mt-1.5">
+                            📄 View Attached Proof
+                          </a>
+                        )}
+                      </div>
+                      <div className="shrink-0">
+                        <button
+                          onClick={() => handleVerifyAchievementAction(ach._id, "verified")}
+                          className="py-1.5 px-3.5 bg-zinc-100 hover:bg-emerald-50 hover:text-emerald-700 text-zinc-600 rounded-xl text-xs font-bold border border-zinc-200 transition-all cursor-pointer"
+                          title="Re-evaluate and approve"
+                        >
+                          Re-approve
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+
+              {facultyAchTab === "verified" && (
+                facultyDashboardVerifiedAch.length === 0 ? (
+                  <p className="text-xs text-zinc-400 italic py-4 text-center">No approved achievement claims yet.</p>
+                ) : (
+                  facultyDashboardVerifiedAch.map((ach) => (
+                    <div key={ach._id} className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h5 className="font-extrabold text-zinc-900 text-xs">{ach.title}</h5>
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-emerald-100 text-emerald-800">
+                            Approved
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-600 mt-1">
+                          Student: <span className="font-bold text-zinc-800">{ach.studentId?.name || "Student"}</span> | Category: <span className="uppercase font-bold text-emerald-700">{ach.category}</span> | Level: <span className="uppercase font-bold text-indigo-700">{ach.level}</span>
+                        </p>
+                        <p className="text-[11px] text-zinc-700 mt-1">"{ach.description}"</p>
+                        {ach.proofUrl && (
+                          <a href={ach.proofUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 hover:underline font-bold inline-flex items-center gap-1 mt-1.5">
+                            📄 View Verified Certificate
+                          </a>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-zinc-400 block">
+                          Verified on {ach.verifiedAt ? new Date(ach.verifiedAt).toLocaleDateString() : "N/A"}
+                        </span>
+                        {ach.verifiedBy?.email && (
+                          <span className="text-[9px] text-emerald-700 font-semibold block">
+                            By {ach.verifiedBy.email}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 1 (Students Only): Profile Display & Timelines */}
+        {!isFaculty && careerHubTab === "profile" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8 space-y-6">
               {needsOnboarding || !hasProfile ? (
@@ -1471,13 +1752,13 @@ export default function CareerPage() {
           </div>
         )}
 
-        {/* Tab 2: Resume builder */}
-        {careerHubTab === "resume" && (
+        {/* Tab 2 (Students Only): Resume builder */}
+        {!isFaculty && careerHubTab === "resume" && (
           <ResumeBuilder />
         )}
 
-        {/* Tab 3: Achievements */}
-        {careerHubTab === "achievements" && (
+        {/* Tab 3 (Students Only): Achievements */}
+        {!isFaculty && careerHubTab === "achievements" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-5 bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm self-start space-y-4">
               <h4 className="text-base font-bold text-zinc-900">Log Co-curricular / Achievements</h4>
@@ -1611,11 +1892,189 @@ export default function CareerPage() {
           </div>
         )}
 
-        {/* Tab 5: Discovery Directory */}
+        {/* Tab: Discovery Directory & Student Lookup */}
         {careerHubTab === "discovery" && (
           <div className="bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm space-y-6">
-            <div className="flex justify-between items-center">
-              <h4 className="text-base font-bold text-zinc-900">Student Talent Directory</h4>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-zinc-100">
+              <div>
+                <h4 className="text-base font-extrabold text-zinc-900">
+                  {isFaculty ? "Student Discovery & Credential Lookup" : "Student Talent Directory"}
+                </h4>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  {isFaculty
+                    ? "Look up complete verified student credentials or discover student talent across campus."
+                    : "Discover peers, connect with fellow campus innovators, and explore student achievements."}
+                </p>
+              </div>
+            </div>
+
+            {/* Student Credential Lookup Section */}
+            <div className="bg-gradient-to-r from-emerald-50/70 via-teal-50/40 to-white border border-emerald-200/80 rounded-2xl p-6 space-y-4 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-sm font-extrabold text-zinc-900 flex items-center gap-2">
+                    <span>🪪</span>
+                    <span>Student Credential Lookup</span>
+                  </h4>
+                  <p className="text-[11px] text-zinc-500">
+                    Lookup complete student records, verified achievements, and CGPA by entering their College Roll Number or registered Email ID.
+                  </p>
+                </div>
+                {searchedStudentProfile && (
+                  <button
+                    onClick={() => {
+                      setSearchedStudentProfile(null);
+                      setSearchedStudentStats(null);
+                      setSearchedStudentCred("");
+                      setSearchStudentError("");
+                    }}
+                    className="text-[11px] font-bold text-zinc-500 hover:text-zinc-800 underline self-start sm:self-auto cursor-pointer"
+                  >
+                    Clear Lookup
+                  </button>
+                )}
+              </div>
+
+              <form onSubmit={handleStudentCredentialLookup} className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="Enter Student Roll Number or Email (e.g. 21BCS101 or student@college.edu)"
+                    value={searchedStudentCred}
+                    onChange={(e) => {
+                      setSearchedStudentCred(e.target.value);
+                      if (searchStudentError) setSearchStudentError("");
+                    }}
+                    className="w-full bg-white border border-emerald-200 rounded-xl px-4 py-2.5 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none shadow-inner"
+                  />
+                  {searchedStudentCred && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchedStudentCred("")}
+                      className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={searchStudentLoading || !searchedStudentCred.trim()}
+                  className="py-2.5 px-6 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow transition-all shrink-0 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {searchStudentLoading ? (
+                    <>
+                      <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+                      Searching...
+                    </>
+                  ) : (
+                    <>
+                      <span>🔍</span>
+                      Find Student Record
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {searchStudentError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-medium flex items-center gap-2">
+                  <span>⚠️</span>
+                  <span>{searchStudentError}</span>
+                </div>
+              )}
+
+              {/* Searched Student Info Card */}
+              {searchedStudentProfile && (
+                <div className="mt-4 bg-white border-2 border-emerald-300/80 rounded-2xl p-5 shadow-md">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-zinc-100">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-2xl bg-emerald-100 border border-emerald-200 overflow-hidden flex items-center justify-center font-black text-xl text-emerald-800 shrink-0 shadow-sm">
+                        {searchedStudentProfile.photoUrl ? (
+                          <img src={searchedStudentProfile.photoUrl} alt={searchedStudentProfile.name} className="w-full h-full object-cover" />
+                        ) : (
+                          searchedStudentProfile.name?.[0]?.toUpperCase() || "S"
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h5 className="text-base font-extrabold text-zinc-950">{searchedStudentProfile.name}</h5>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            {searchedStudentProfile.rollNumber}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-600 mt-0.5">
+                          {searchedStudentProfile.branch} &bull; Class of {searchedStudentProfile.graduationYear} &bull; Semester {searchedStudentProfile.semester || 1}
+                        </p>
+                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                          ✉️ {searchedStudentProfile.user?.email || searchedStudentProfile.email || "No email"} {searchedStudentProfile.contact ? `| 📞 ${searchedStudentProfile.contact}` : ""}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                      <button
+                        onClick={() => fetchPublicProfileView(searchedStudentProfile._id)}
+                        className="flex-1 md:flex-initial py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <span>📜</span>
+                        View Full Portfolio Card
+                      </button>
+                      {searchedStudentProfile.user?._id && (
+                        <Link
+                          href={`/chat?recipient=${searchedStudentProfile.user._id}`}
+                          className="py-2 px-4 border border-zinc-200 hover:bg-zinc-50 text-zinc-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <span>💬</span>
+                          Message
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-4 border-b border-zinc-100">
+                    <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-100">
+                      <span className="text-[10px] font-bold text-zinc-400 block uppercase tracking-wider">CGPA</span>
+                      <span className="text-sm font-extrabold text-emerald-700">
+                        {searchedStudentProfile.cgpa || searchedStudentProfile.education?.graduation?.currentCgpa || "N/A"}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-100">
+                      <span className="text-[10px] font-bold text-zinc-400 block uppercase tracking-wider">Verified Badges</span>
+                      <span className="text-sm font-extrabold text-indigo-700">
+                        {searchedStudentStats?.verifiedAchievementsCount ?? (searchedStudentProfile.verifiedAchievementsCount || 0)}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-100">
+                      <span className="text-[10px] font-bold text-zinc-400 block uppercase tracking-wider">Projects</span>
+                      <span className="text-sm font-extrabold text-zinc-800">
+                        {searchedStudentProfile.projects?.length || 0}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-100">
+                      <span className="text-[10px] font-bold text-zinc-400 block uppercase tracking-wider">Certificates</span>
+                      <span className="text-sm font-extrabold text-zinc-800">
+                        {searchedStudentProfile.certifications?.length || 0}
+                      </span>
+                    </div>
+                  </div>
+
+                  {searchedStudentProfile.bio && (
+                    <p className="text-xs text-zinc-600 italic pt-3">
+                      "{searchedStudentProfile.bio}"
+                    </p>
+                  )}
+
+                  {searchedStudentProfile.skills?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-3">
+                      {searchedStudentProfile.skills.map((skill: string, sIdx: number) => (
+                        <span key={sIdx} className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-lg border border-emerald-100">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Filters Row */}
@@ -1709,51 +2168,6 @@ export default function CareerPage() {
                     </div>
                   );
                 })
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Faculty Dashboard shortcut panel */}
-        {(userRole === "faculty" || userRole === "admin") && (
-          <div className="bg-white border border-red-100 rounded-3xl p-6 shadow-sm space-y-6">
-            <div className="border-b border-red-50 pb-2">
-              <h4 className="text-base font-extrabold text-red-950">Faculty Verification & shortlists Dashboard</h4>
-              <p className="text-[11px] text-red-600">Pending co-curricular achievement claims requiring verification.</p>
-            </div>
-
-            <div className="space-y-3">
-              {facultyDashboardPendingAch.length === 0 ? (
-                <p className="text-xs text-zinc-400 italic">No pending achievement verifications.</p>
-              ) : (
-                facultyDashboardPendingAch.map((ach) => (
-                  <div key={ach._id} className="border border-red-50 rounded-2xl p-4 bg-red-50/20 flex justify-between items-center gap-4">
-                    <div>
-                      <h5 className="font-extrabold text-red-950 text-xs">{ach.title}</h5>
-                      <p className="text-[11px] text-zinc-600 mt-1">Submitted by: <span className="font-bold">{ach.studentId?.name || "Student"}</span> | Category: <span className="uppercase font-bold">{ach.category}</span> | Level: <span className="uppercase font-bold">{ach.level}</span> | Semester: <span className="font-bold">{ach.semester}</span></p>
-                      <p className="text-[11px] text-zinc-700 mt-2">"{ach.description}"</p>
-                      {ach.proofUrl && (
-                        <a href={ach.proofUrl} target="_blank" rel="noreferrer" className="text-[10px] text-emerald-600 hover:underline font-bold block mt-1">
-                          🔗 View Proof Document
-                        </a>
-                      )}
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <button
-                        onClick={() => handleVerifyAchievementAction(ach._id, "verified")}
-                        className="py-1.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleVerifyAchievementAction(ach._id, "rejected")}
-                        className="py-1.5 px-4 bg-red-650 hover:bg-red-750 text-white rounded-lg text-xs font-bold"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))
               )}
             </div>
           </div>

@@ -1,5 +1,6 @@
 const StudentProfile = require("../models/StudentProfile");
 const User = require("../models/User");
+const Achievement = require("../models/Achievement");
 
 // Get all student users
 exports.getAllStudents = async (req, res) => {
@@ -103,11 +104,34 @@ exports.updateProfile = async (req, res) => {
 exports.getPublicProfile = async (req, res) => {
   try {
     const { rollNumber } = req.params;
-    const profile = await StudentProfile.findOne({ rollNumber }).populate("user", "email");
+    const trimmed = (rollNumber || "").trim();
+    let profile = await StudentProfile.findOne({
+      rollNumber: { $regex: new RegExp(`^${trimmed}$`, "i") }
+    }).populate("user", "email");
+
+    if (!profile) {
+      // Also allow looking up by email
+      const user = await User.findOne({ email: trimmed.toLowerCase() });
+      if (user) {
+        profile = await StudentProfile.findOne({ user: user._id }).populate("user", "email");
+      }
+    }
+
     if (!profile) {
       return res.status(404).json({ success: false, message: "Student profile not found" });
     }
-    res.json({ success: true, profile });
+
+    const verifiedAchievementsCount = await Achievement.countDocuments({ studentId: profile._id, status: "verified" });
+    const totalAchievementsCount = await Achievement.countDocuments({ studentId: profile._id });
+
+    res.json({
+      success: true,
+      profile,
+      stats: {
+        verifiedAchievementsCount,
+        totalAchievementsCount
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
