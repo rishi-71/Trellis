@@ -359,7 +359,9 @@ exports.returnResource = async (req, res) => {
 // -------------------------------------------------------------
 exports.getAllLostFound = async (req, res) => {
   try {
-    const items = await LostFound.find({}).sort({ createdAt: -1 });
+    const items = await LostFound.find({})
+      .populate("reporter", "email")
+      .sort({ createdAt: -1 });
     res.json({ success: true, items });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -378,6 +380,8 @@ exports.reportLostFound = async (req, res) => {
       return res.status(400).json({ success: false, message: "Ownership proof (receipt/bill) is required for reporting lost items." });
     }
 
+    const initialStatus = type === "found" ? "awaiting_handover" : "open";
+
     const item = new LostFound({
       reporter: req.user.id,
       title,
@@ -386,7 +390,8 @@ exports.reportLostFound = async (req, res) => {
       location,
       contact: contact || contactDetails || "",
       proofUrl,
-      imageUrl
+      imageUrl,
+      status: initialStatus
     });
     await item.save();
     res.json({ success: true, item });
@@ -395,9 +400,55 @@ exports.reportLostFound = async (req, res) => {
   }
 };
 
+exports.updateLostFoundStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, pickupDate, pickupLocation, managementNotes, claimedBy } = req.body;
+    
+    const item = await LostFound.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Lost & Found item not found." });
+    }
+
+    if (status) {
+      item.status = status;
+    }
+    if (pickupDate !== undefined) item.pickupDate = pickupDate ? new Date(pickupDate) : undefined;
+    if (pickupLocation !== undefined) item.pickupLocation = pickupLocation;
+    if (managementNotes !== undefined) item.managementNotes = managementNotes;
+    
+    if (status === "ready_for_pickup") {
+      item.receivedByManagement = true;
+      item.receivedAt = item.receivedAt || new Date();
+      if (!item.pickupDate && pickupDate) item.pickupDate = new Date(pickupDate);
+      if (!item.pickupLocation && pickupLocation) item.pickupLocation = pickupLocation;
+    }
+
+    if (status === "claimed") {
+      item.claimedBy = claimedBy || req.body.claimedBy || "Verified Owner";
+      item.claimedAt = new Date();
+    }
+
+    await item.save();
+    res.json({ success: true, item, message: `Lost & Found status updated to ${item.status}` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 exports.claimLostFound = async (req, res) => {
   try {
-    const item = await LostFound.findByIdAndUpdate(req.params.id, { status: "claimed" }, { new: true });
+    const { claimedBy, managementNotes } = req.body;
+    const item = await LostFound.findByIdAndUpdate(
+      req.params.id, 
+      { 
+        status: "claimed",
+        claimedBy: claimedBy || req.user.email || "Claimed",
+        claimedAt: new Date(),
+        ...(managementNotes ? { managementNotes } : {})
+      }, 
+      { new: true }
+    );
     res.json({ success: true, item });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

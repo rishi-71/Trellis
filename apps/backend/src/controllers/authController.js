@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const StudentProfile = require("../models/StudentProfile");
 const FacultyProfile = require("../models/FacultyProfile");
+const ManagementProfile = require("../models/ManagementProfile");
 const jwt = require("jsonwebtoken");
 
 const generateToken = (user) => {
@@ -13,7 +14,12 @@ const generateToken = (user) => {
 
 exports.register = async (req, res) => {
   try {
-    const { email, password, role, name, rollNumber, enrollmentNumber, branch, collegeId, post, year, semester, department } = req.body;
+    const { 
+      email, password, role, name, 
+      rollNumber, enrollmentNumber, branch, 
+      collegeId, post, year, semester, 
+      department, employeeId, phone, officeLocation 
+    } = req.body;
     
     if (!email || !password || !role) {
       return res.status(400).json({ success: false, message: "Email, password, and role are required" });
@@ -45,6 +51,15 @@ exports.register = async (req, res) => {
       if (existingFaculty) {
         return res.status(400).json({ success: false, message: "Faculty with this College ID already exists" });
       }
+    } else if (role === "management") {
+      const finalEmpId = employeeId || collegeId;
+      if (!name || !finalEmpId) {
+        return res.status(400).json({ success: false, message: "Full Name and Employee ID are required for management staff" });
+      }
+      const existingMgmt = await ManagementProfile.findOne({ employeeId: finalEmpId });
+      if (existingMgmt) {
+        return res.status(400).json({ success: false, message: "Management staff with this Employee ID already exists" });
+      }
     }
     
     // Create new user
@@ -74,6 +89,17 @@ exports.register = async (req, res) => {
         department
       });
       await facultyProfile.save();
+    } else if (role === "management") {
+      const finalEmpId = employeeId || collegeId;
+      const managementProfile = new ManagementProfile({
+        user: user._id,
+        name,
+        employeeId: finalEmpId,
+        department: department || "Campus Facilities & Operations",
+        phone: phone || "",
+        officeLocation: officeLocation || "Central Admin Office"
+      });
+      await managementProfile.save();
     }
     
     const token = generateToken(user);
@@ -142,6 +168,8 @@ exports.getMe = async (req, res) => {
       profile = await StudentProfile.findOne({ user: user._id });
     } else if (user.role === "faculty") {
       profile = await FacultyProfile.findOne({ user: user._id });
+    } else if (user.role === "management") {
+      profile = await ManagementProfile.findOne({ user: user._id });
     }
 
     res.json({
