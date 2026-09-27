@@ -10,7 +10,18 @@ const LostFoundSchema = new mongoose.Schema({
   proofUrl: { type: String },
   imageUrl: { type: String },
   date: { type: Date, default: Date.now },
-  status: { type: String, enum: ['open', 'claimed'], default: 'open' }
+  status: { 
+    type: String, 
+    enum: ['open', 'awaiting_handover', 'ready_for_pickup', 'claimed'], 
+    default: 'open' 
+  },
+  pickupDate: { type: Date },
+  pickupLocation: { type: String },
+  receivedByManagement: { type: Boolean, default: false },
+  receivedAt: { type: Date },
+  managementNotes: { type: String },
+  claimedBy: { type: String },
+  claimedAt: { type: Date }
 }, { timestamps: true });
 
 module.exports = mongoose.model("LostFound", LostFoundSchema);

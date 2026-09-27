@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const campusController = require("../controllers/campusController");
-const { verifyToken, verifyStudent, verifyFacultyOrAdmin } = require("../middleware/auth");
+const { verifyToken, verifyStudent, verifyFacultyOrAdmin, verifyManagementOrFacultyOrAdmin } = require("../middleware/auth");
 
 // M1: Campus Finder
 router.get("/locations", campusController.getAllLocations);
@@ -56,5 +56,7 @@ router.post("/resources/:id/return", verifyToken, verifyStudent, campusControlle
 router.get("/lostfound", verifyToken, campusController.getAllLostFound);
 router.post("/lostfound", verifyToken, campusController.reportLostFound);
 router.put("/lostfound/:id/claim", verifyToken, campusController.claimLostFound);
+router.patch("/lostfound/:id/management-status", verifyToken, verifyManagementOrFacultyOrAdmin, campusController.updateLostFoundStatus);
+router.put("/lostfound/:id/status", verifyToken, verifyManagementOrFacultyOrAdmin, campusController.updateLostFoundStatus);
 
 module.exports = router;

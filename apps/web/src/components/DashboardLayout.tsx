@@ -33,6 +33,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         router.push("/");
       }
     } else {
+      if (savedRole === "management" && pathname !== "/" && pathname !== "/lostfound" && pathname !== "/complaints") {
+        router.push("/lostfound");
+        return;
+      }
       setToken(savedToken);
       setUserRole(savedRole);
       setUserEmail(savedEmail);
@@ -120,6 +124,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {menuItems
             .filter((item) => {
+              if (userRole === "management") {
+                return item.path === "/#desktop" || item.path === "/complaints" || item.path === "/lostfound";
+              }
               if (userRole === "student") {
                 if (item.path === "/placements") {
                   const isAllowed = studentYear >= 3 || studentSemester >= 6;
