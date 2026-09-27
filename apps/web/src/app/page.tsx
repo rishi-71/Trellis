@@ -196,6 +196,9 @@ export default function Home() {
         await syncUserProfile(data.token);
         setAuthMessage("Logged in successfully!");
         setIsAuthModalOpen(false);
+        if (data.user.role === "placement_head") {
+          router.push("/placements");
+        }
       } else {
         setAuthError(data.message || "Invalid credentials");
       }
@@ -212,10 +215,15 @@ export default function Home() {
     setAuthMessage("");
     setLoading(true);
 
+    let finalRole = selectedRole;
+    if (facultyDept.includes("Placement") || post.toLowerCase().includes("placement") || selectedRole === "placement_head") {
+      finalRole = "placement_head";
+    }
+
     const payload: any = {
       email,
       password,
-      role: selectedRole,
+      role: finalRole,
       name: fullName
     };
 
@@ -224,9 +232,9 @@ export default function Home() {
       payload.branch = branch;
       payload.year = year;
       payload.semester = semester;
-    } else if (selectedRole === "faculty") {
-      payload.collegeId = collegeId;
-      payload.post = post;
+    } else {
+      payload.collegeId = collegeId || (finalRole === "placement_head" ? `TPO-${Date.now().toString().slice(-4)}` : "");
+      payload.post = post || (finalRole === "placement_head" ? "Placement Head" : "Professor");
       payload.department = facultyDept;
     }
 
@@ -247,6 +255,9 @@ export default function Home() {
         await syncUserProfile(data.token);
         setAuthMessage("Registered successfully!");
         setIsAuthModalOpen(false);
+        if (data.user.role === "placement_head") {
+          router.push("/placements");
+        }
       } else {
         setAuthError(data.message || "Something went wrong");
       }
@@ -258,6 +269,12 @@ export default function Home() {
   };
 
   const handleFeatureCardClick = (app: any, e: React.MouseEvent) => {
+    if (userRole === "placement_head" && app.path !== "/placements") {
+      e.preventDefault();
+      alert("Access Restricted: As Placement Head, your account has dedicated access exclusively to the Placement Board.");
+      router.push("/placements");
+      return;
+    }
     const isPublic = app.path === "/finder";
     if (isPublic) {
       router.push(app.path);
@@ -765,10 +782,19 @@ export default function Home() {
                         <select
                           required
                           value={facultyDept}
-                          onChange={(e) => setFacultyDept(e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFacultyDept(val);
+                            if (val.includes("Placement")) {
+                              if (!post || post === "Assistant Professor") {
+                                setPost("Placement Head");
+                              }
+                            }
+                          }}
                           className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
                         >
                           <option value="Internet of Things (IoT)">Internet of Things (IoT)</option>
+                          <option value="Training & Placement Cell (Placement Head)">Training & Placement Cell (Placement Head)</option>
                           <option value="Electronics & Communication (ECE)">Electronics & Communication (ECE)</option>
                           <option value="Electrical Engineering">Electrical Engineering</option>
                           <option value="Computer Science & Engineering (CSE)">Computer Science & Engineering (CSE)</option>

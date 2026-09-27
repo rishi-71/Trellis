@@ -91,12 +91,12 @@ const PlacementRegistrationSchema = new mongoose.Schema({
   
   documents: {
     resumeUrl: { type: String, required: true },
-    tenthMarksheetUrl: { type: String, required: true },
-    twelfthMarksheetUrl: { type: String, required: true },
+    tenthMarksheetUrl: { type: String },
+    twelfthMarksheetUrl: { type: String },
     semesterMarksheets: [
       {
-        semester: { type: Number, required: true },
-        url: { type: String, required: true }
+        semester: { type: Number },
+        url: { type: String }
       }
     ]
   },
