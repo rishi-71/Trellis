@@ -46,7 +46,7 @@ exports.getAllLocations = async (req, res) => {
         { name: "Main Auditorium", category: "classroom", building: "Block A", floor: 0, x: 120, y: 170, description: "Entrance from the central lawn, Block A ground floor." },
         { name: "Mechanical Workshop", category: "lab", building: "Block D", floor: 0, x: 220, y: 320, description: "D-Block ground floor, spacious hangar behind Block C." },
         { name: "Placement Cell", category: "other", building: "Block B", floor: 2, x: 230, y: 160, description: "B-Block 2nd floor, Room 204 near Faculty Cabin." },
-        
+
         { name: "Indore Central Canteen", category: "canteen", building: "Block C", floor: 0, x: 80, y: 280, description: "Canteen serving Indian snacks, located in Block C ground floor." },
         { name: "Main Sports Ground", category: "ground", building: "Outdoors", floor: 0, x: 150, y: 80, description: "Outdoor sports track and cricket ground." },
         { name: "Central Library", category: "library", building: "Block A", floor: 1, x: 130, y: 140, description: "Silent reading rooms and textbook issue center, Block A 1st floor." },
@@ -279,7 +279,7 @@ exports.resolveSOS = async (req, res) => {
 exports.getMyResources = async (req, res) => {
   try {
     const issues = await ResourceIssue.find({ student: req.user.id });
-    
+
     // Update live fine calculations for active issues
     const now = new Date();
     const updatedIssues = issues.map(issue => {
@@ -307,7 +307,7 @@ exports.getMyResources = async (req, res) => {
 exports.issueResource = async (req, res) => {
   try {
     const { resourceName, category } = req.body;
-    
+
     // Default rent period: 7 days
     const issueDate = new Date();
     const dueDate = new Date(issueDate.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -371,7 +371,7 @@ exports.getAllLostFound = async (req, res) => {
 exports.reportLostFound = async (req, res) => {
   try {
     const { title, type, description, location, contact, contactDetails, proofUrl, imageUrl } = req.body;
-    
+
     if (!title || !type || !description || !location) {
       return res.status(400).json({ success: false, message: "Missing required fields." });
     }
@@ -404,7 +404,7 @@ exports.updateLostFoundStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, pickupDate, pickupLocation, managementNotes, claimedBy } = req.body;
-    
+
     const item = await LostFound.findById(id);
     if (!item) {
       return res.status(404).json({ success: false, message: "Lost & Found item not found." });
@@ -416,7 +416,7 @@ exports.updateLostFoundStatus = async (req, res) => {
     if (pickupDate !== undefined) item.pickupDate = pickupDate ? new Date(pickupDate) : undefined;
     if (pickupLocation !== undefined) item.pickupLocation = pickupLocation;
     if (managementNotes !== undefined) item.managementNotes = managementNotes;
-    
+
     if (status === "ready_for_pickup") {
       item.receivedByManagement = true;
       item.receivedAt = item.receivedAt || new Date();
@@ -440,13 +440,13 @@ exports.claimLostFound = async (req, res) => {
   try {
     const { claimedBy, managementNotes } = req.body;
     const item = await LostFound.findByIdAndUpdate(
-      req.params.id, 
-      { 
+      req.params.id,
+      {
         status: "claimed",
         claimedBy: claimedBy || req.user.email || "Claimed",
         claimedAt: new Date(),
         ...(managementNotes ? { managementNotes } : {})
-      }, 
+      },
       { new: true }
     );
     res.json({ success: true, item });
@@ -567,7 +567,7 @@ exports.getShortestPath = async (req, res) => {
     for (let i = 0; i < path.length - 1; i++) {
       const current = path[i];
       const next = path[i + 1];
-      
+
       if (current.floor !== next.floor) {
         directions.push(`Take the stairs or elevator to the ${next.floor === 0 ? "Ground" : next.floor === 1 ? "1st" : "2nd"} floor.`);
       } else {
@@ -689,12 +689,12 @@ const uploadBase64ImageToCloudinary = async (base64Data, folder, publicId) => {
   if (base64Data.startsWith("http://") || base64Data.startsWith("https://")) {
     return base64Data;
   }
-  
+
   const matches = base64Data.match(/^data:(image|application)\/([a-zA-Z+]+);base64,/);
   if (!matches) {
     throw new Error("Invalid file format. Must be a valid base64 image or PDF string.");
   }
-  
+
   const ext = matches[2].toLowerCase();
   if (!["jpeg", "jpg", "png", "webp", "pdf"].includes(ext)) {
     throw new Error("Invalid file type. Allowed formats: JPG, JPEG, PNG, WEBP, PDF");
@@ -706,7 +706,7 @@ const uploadBase64ImageToCloudinary = async (base64Data, folder, publicId) => {
   }
 
   const hasCloudinary = process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET;
-  
+
   if (hasCloudinary) {
     try {
       const result = await cloudinary.uploader.upload(base64Data, {
@@ -726,15 +726,15 @@ const uploadBase64ImageToCloudinary = async (base64Data, folder, publicId) => {
     const path = require("path");
     const base64Content = base64Data.replace(/^data:image\/[a-zA-Z+]+;base64,/, "");
     const buffer = Buffer.from(base64Content, "base64");
-    
+
     const dir = path.join(process.cwd(), "public/uploads");
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    
+
     const fileName = `${publicId}_${Date.now()}.${ext}`;
     const filePath = path.join(dir, fileName);
-    
+
     fs.writeFileSync(filePath, buffer);
     return `http://localhost:5000/uploads/${fileName}`;
   } catch (err) {
@@ -809,14 +809,14 @@ exports.updateProfile = async (req, res) => {
       const userObj = await User.findOne({ email: studentId });
       if (userObj) studentId = userObj._id;
     }
-    const { 
-      name, rollNumber, branch, graduationYear, semester, bio, contact, 
+    const {
+      name, rollNumber, branch, graduationYear, semester, bio, contact,
       skills, projects, certifications, experience, photoUrl, bannerImage,
       education, github, linkedin, portfolio, isPublic
     } = req.body;
 
     let profile = await StudentProfile.findOne({ user: studentId });
-    
+
     if (!profile) {
       profile = new StudentProfile({ user: studentId });
     }
@@ -851,16 +851,16 @@ exports.updateProfile = async (req, res) => {
     }
 
     profile.profileCompletionPercent = calculateCompletionPercent(profile);
-    
+
     await profile.save();
     await updateCareerTagsForProfile(profile._id);
     res.json({ success: true, profile });
   } catch (err) {
     if (err.code === 11000) {
       const field = Object.keys(err.keyValue)[0];
-      return res.status(400).json({ 
-        success: false, 
-        message: `${field === "rollNumber" ? "Roll Number" : "Profile for this user"} is already registered.` 
+      return res.status(400).json({
+        success: false,
+        message: `${field === "rollNumber" ? "Roll Number" : "Profile for this user"} is already registered.`
       });
     }
     res.status(500).json({ success: false, message: err.message });
@@ -898,7 +898,7 @@ exports.getPublicProfileView = async (req, res) => {
 
     const achievements = await Achievement.find({ studentId, status: "verified" });
     const endorsements = await Endorsement.find({ toUserId: profile.user?._id });
-    
+
     const followersCount = await Follow.countDocuments({ followingId: profile.user?._id });
     const followingCount = await Follow.countDocuments({ followerId: profile.user?._id });
     const isFollowing = await Follow.exists({ followerId: req.user.id, followingId: profile.user?._id });
@@ -927,7 +927,7 @@ exports.getPublicProfileView = async (req, res) => {
 exports.createAchievement = async (req, res) => {
   try {
     const { title, category, level, description, proofUrl } = req.body;
-    
+
     const profile = await StudentProfile.findOne({ user: req.user.id });
     if (!profile) return res.status(400).json({ success: false, message: "Please create a profile first" });
 
@@ -940,7 +940,7 @@ exports.createAchievement = async (req, res) => {
       proofUrl,
       status: "pending"
     });
-    
+
     await achievement.save();
     res.json({ success: true, achievement });
   } catch (err) {
@@ -962,7 +962,7 @@ exports.verifyAchievement = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, rejectionReason } = req.body;
-    
+
     const achievement = await Achievement.findById(id);
     if (!achievement) {
       return res.status(404).json({ success: false, message: "Achievement not found" });
@@ -1049,7 +1049,7 @@ const renderResumeWithPdfKit = (profile, achievements, template, customData, res
       doc.text(`GitHub: ${data.github} | LinkedIn: ${data.linkedin} | Portfolio: ${data.portfolio}`, { lineGap: 10 });
     }
     doc.moveDown(1);
-    
+
     doc.fillColor("#1f2937").fontSize(11).text(data.bio, { align: "justify", lineGap: 6 });
     doc.moveDown(1);
 
@@ -1082,7 +1082,7 @@ const renderResumeWithPdfKit = (profile, achievements, template, customData, res
     data.achievements.forEach(a => {
       doc.fillColor("#111827").fontSize(10).text(`• Verified Achievement: ${a.title} [${a.category.toUpperCase()} - ${a.level.toUpperCase()} LEVEL] (Sem ${a.semester || ""})`);
     });
-    
+
     doc.moveDown(1);
     doc.fillColor("#0284c7").fontSize(13).text("EDUCATION", { underline: true, lineGap: 4 });
     if (data.education && typeof data.education === "object") {
@@ -1262,7 +1262,7 @@ exports.saveResumeVersion = async (req, res) => {
       name,
       generatedContent
     });
-    
+
     await resume.save();
     res.json({ success: true, resume });
   } catch (err) {
@@ -1287,24 +1287,24 @@ exports.getSavedResumes = async (req, res) => {
 exports.toggleFollowStudent = async (req, res) => {
   try {
     const { studentId } = req.params;
-    
+
     const targetProfile = await StudentProfile.findById(studentId);
     if (!targetProfile) return res.status(404).json({ success: false, message: "Target profile not found" });
-    
+
     const targetUserId = targetProfile.user;
 
-    const followExists = await Follow.findOne({ 
-      followerId: req.user.id, 
-      followingId: targetUserId 
+    const followExists = await Follow.findOne({
+      followerId: req.user.id,
+      followingId: targetUserId
     });
 
     if (followExists) {
       await Follow.deleteOne({ _id: followExists._id });
       res.json({ success: true, followed: false });
     } else {
-      const follow = new Follow({ 
-        followerId: req.user.id, 
-        followingId: targetUserId 
+      const follow = new Follow({
+        followerId: req.user.id,
+        followingId: targetUserId
       });
       await follow.save();
       res.json({ success: true, followed: true });
@@ -1333,7 +1333,7 @@ exports.endorseSkill = async (req, res) => {
       toUserId,
       skill
     });
-    
+
     await endorsement.save();
     res.json({ success: true, endorsement });
   } catch (err) {
@@ -1349,10 +1349,10 @@ exports.getActivityFeed = async (req, res) => {
     if (scope === "following") {
       const follows = await Follow.find({ followerId: req.user.id });
       const followingUserIds = follows.map(f => f.followingId);
-      
+
       const profiles = await StudentProfile.find({ user: { $in: followingUserIds } });
       const profileIds = profiles.map(p => p._id);
-      
+
       query = { studentId: { $in: profileIds } };
     }
 
@@ -1370,13 +1370,13 @@ exports.getActivityFeed = async (req, res) => {
 exports.addFacultyRecommendation = async (req, res) => {
   try {
     const { studentId, text } = req.body;
-    
+
     const rec = new FacultyRecommendation({
       facultyId: req.user.id,
       studentId,
       text
     });
-    
+
     await rec.save();
     res.json({ success: true, recommendation: rec });
   } catch (err) {
@@ -1451,7 +1451,7 @@ exports.getFacultyDashboard = async (req, res) => {
     if (year) query.graduationYear = parseInt(year);
 
     let profiles = await StudentProfile.find(query).populate("user", "email").sort({ name: 1 });
-    
+
     let achQuery = {};
     if (category) achQuery.category = category;
 
@@ -1481,10 +1481,10 @@ exports.uploadFileEndpoint = async (req, res) => {
   try {
     const { fileData, fileType } = req.body;
     if (!fileData) return res.status(400).json({ success: false, message: "Missing fileData" });
-    
+
     const folder = fileType === "pdf" ? "certificates_pdf" : "certificates_img";
     const publicId = `cert_${req.user.id}`;
-    
+
     const url = await uploadBase64ImageToCloudinary(fileData, folder, publicId);
     res.json({ success: true, url });
   } catch (err) {
