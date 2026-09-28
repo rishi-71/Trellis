@@ -35,6 +35,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         router.push("/");
       }
     } else {
+      if (savedRole === "management" && pathname !== "/" && pathname !== "/lostfound" && pathname !== "/complaints") {
+        router.push("/lostfound");
+        return;
+      }
       setToken(savedToken);
       setUserRole(savedRole);
       setUserEmail(savedEmail);

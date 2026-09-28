@@ -3,16 +3,23 @@ const Complaint = require("../models/Complaint");
 // File a complaint (Student only)
 exports.fileComplaint = async (req, res) => {
   try {
-    const { category, description } = req.body;
+    const { title, location, category, issueType, description, imageUrl } = req.body;
     
-    if (!category || !description) {
-      return res.status(400).json({ success: false, message: "Category and description are required" });
+    if (!title || !description || !location) {
+      return res.status(400).json({ success: false, message: "Title, location, and description are required" });
     }
+
+    const finalCategory = category || issueType || 'other';
     
     const complaint = new Complaint({
       student: req.user.id,
-      category,
-      description
+      title,
+      location,
+      category: finalCategory,
+      issueType: issueType || finalCategory,
+      description,
+      imageUrl,
+      status: 'pending'
     });
     
     await complaint.save();
@@ -26,14 +33,16 @@ exports.fileComplaint = async (req, res) => {
 // Get current student's complaints
 exports.getMyComplaints = async (req, res) => {
   try {
-    const complaints = await Complaint.find({ student: req.user.id }).sort({ createdAt: -1 });
+    const complaints = await Complaint.find({ student: req.user.id })
+      .populate("student", "email")
+      .sort({ createdAt: -1 });
     res.json({ success: true, complaints });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// Get all complaints (Faculty / Admin only)
+// Get all complaints (Management / Faculty / Admin)
 exports.getAllComplaints = async (req, res) => {
   try {
     const complaints = await Complaint.find()
@@ -45,14 +54,14 @@ exports.getAllComplaints = async (req, res) => {
   }
 };
 
-// Update complaint status (Faculty / Admin only)
+// Update complaint status (Management / Faculty / Admin)
 exports.updateComplaintStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, assignedTo, resolutionNotes } = req.body;
     const { id } = req.params;
     
     if (!['pending', 'in_progress', 'resolved'].includes(status)) {
-      return res.status(400).json({ success: false, message: "Invalid status" });
+      return res.status(400).json({ success: false, message: "Invalid status. Must be pending, in_progress, or resolved" });
     }
     
     const complaint = await Complaint.findById(id);
@@ -61,9 +70,20 @@ exports.updateComplaintStatus = async (req, res) => {
     }
     
     complaint.status = status;
+    if (assignedTo !== undefined) complaint.assignedTo = assignedTo;
+    if (resolutionNotes !== undefined) complaint.resolutionNotes = resolutionNotes;
+    
+    if (status === 'resolved') {
+      complaint.resolvedAt = new Date();
+    }
+    
     await complaint.save();
     
-    res.json({ success: true, message: `Complaint status updated to ${status}`, complaint });
+    res.json({ 
+      success: true, 
+      message: `Complaint marked as ${status === 'in_progress' ? 'Work Ongoing' : status === 'resolved' ? 'Work Completed' : 'Pending'}`, 
+      complaint 
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

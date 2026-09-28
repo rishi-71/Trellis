@@ -22,12 +22,16 @@ export default function ProfileScreen() {
   const [isLoginView, setIsLoginView] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [registerRole, setRegisterRole] = useState<'student' | 'faculty'>('student');
+  const [registerRole, setRegisterRole] = useState<'student' | 'faculty' | 'management'>('student');
   const [collegeId, setCollegeId] = useState('');
   const [post, setPost] = useState('');
   const [regYear, setRegYear] = useState('1');
   const [regSemester, setRegSemester] = useState('1');
   const [regFacultyDept, setRegFacultyDept] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
+  const [mgmtDept, setMgmtDept] = useState('Campus Facilities & Operations');
+  const [mgmtPhone, setMgmtPhone] = useState('');
+  const [officeLocation, setOfficeLocation] = useState('Central Admin Office');
   
   // Profile State
   const [loading, setLoading] = useState(false);
@@ -52,18 +56,18 @@ export default function ProfileScreen() {
     return unsubscribe;
   }, []);
 
-  // Fetch Student Profile
+  // Fetch Profile
   const fetchProfile = async (authToken: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`${backendUrl}/api/students/profile`, {
+      const response = await fetch(`${backendUrl}/api/auth/me`, {
         method: 'GET',
         headers: { 
           'Authorization': `Bearer ${authToken}`
         },
       });
       const data = await response.json();
-      if (data.success) {
+      if (data.success && data.profile) {
         setProfile(data.profile);
         setHasProfile(true);
       } else {
@@ -113,6 +117,12 @@ export default function ProfileScreen() {
           setProfile(data.profile);
           setHasProfile(true);
         } else if (role === 'faculty' && data.profile) {
+          globalState.setStudentBranch(data.profile.department || '');
+          globalState.setStudentYear(1);
+          globalState.setStudentSemester(1);
+          setProfile(data.profile);
+          setHasProfile(true);
+        } else if (role === 'management' && data.profile) {
           globalState.setStudentBranch(data.profile.department || '');
           globalState.setStudentYear(1);
           globalState.setStudentSemester(1);
@@ -180,7 +190,7 @@ export default function ProfileScreen() {
       payload.branch = branch;
       payload.year = parseInt(regYear) || 1;
       payload.semester = parseInt(regSemester) || 1;
-    } else {
+    } else if (registerRole === 'faculty') {
       if (!name || !collegeId || !post || !regFacultyDept) {
         Alert.alert('Error', 'Please fill in Full Name, College ID, Post, and Department');
         return;
@@ -188,6 +198,15 @@ export default function ProfileScreen() {
       payload.collegeId = collegeId;
       payload.post = post;
       payload.department = regFacultyDept;
+    } else if (registerRole === 'management') {
+      if (!name || !employeeId) {
+        Alert.alert('Error', 'Please fill in Full Name and Staff / Employee ID');
+        return;
+      }
+      payload.employeeId = employeeId;
+      payload.department = mgmtDept;
+      payload.phone = mgmtPhone;
+      payload.officeLocation = officeLocation;
     }
 
     setLoading(true);
@@ -300,13 +319,19 @@ export default function ProfileScreen() {
                   style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: registerRole === 'student' ? '#FFF' : 'transparent' }}
                   onPress={() => setRegisterRole('student')}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: registerRole === 'student' ? '#047857' : '#6B7280' }}>Student</Text>
+                  <Text style={{ fontSize: 11, fontWeight: 'bold', color: registerRole === 'student' ? '#047857' : '#6B7280' }}>Student</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: registerRole === 'faculty' ? '#FFF' : 'transparent' }}
                   onPress={() => setRegisterRole('faculty')}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: registerRole === 'faculty' ? '#047857' : '#6B7280' }}>Faculty</Text>
+                  <Text style={{ fontSize: 11, fontWeight: 'bold', color: registerRole === 'faculty' ? '#047857' : '#6B7280' }}>Faculty</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: registerRole === 'management' ? '#FFF' : 'transparent' }}
+                  onPress={() => setRegisterRole('management')}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: 'bold', color: registerRole === 'management' ? '#047857' : '#6B7280' }}>Mgmt</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -394,6 +419,37 @@ export default function ProfileScreen() {
               </>
             )}
 
+            {!isLoginView && registerRole === 'management' && (
+              <>
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Staff / Employee ID *"
+                  value={employeeId}
+                  onChangeText={setEmployeeId}
+                  autoCapitalize="characters"
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Department / Facility Office *"
+                  value={mgmtDept}
+                  onChangeText={setMgmtDept}
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Contact Phone Number"
+                  value={mgmtPhone}
+                  onChangeText={setMgmtPhone}
+                  keyboardType="phone-pad"
+                />
+                <TextInput 
+                  style={styles.input}
+                  placeholder="Office Location (e.g. Admin Room 102)"
+                  value={officeLocation}
+                  onChangeText={setOfficeLocation}
+                />
+              </>
+            )}
+
             <TouchableOpacity style={styles.button} onPress={isLoginView ? handleLogin : handleRegister}>
               <Text style={styles.buttonText}>{isLoginView ? 'Login' : 'Register'}</Text>
             </TouchableOpacity>
@@ -409,8 +465,8 @@ export default function ProfileScreen() {
         {/* 2. Create Profile Form */}
         {token && !hasProfile && !loading && (
           <View style={styles.card}>
-            <Text style={styles.title}>Create Student Profile</Text>
-            <Text style={styles.subtitle}>Setup your mini-LinkedIn profile</Text>
+            <Text style={styles.title}>Create Profile</Text>
+            <Text style={styles.subtitle}>Setup your campus profile</Text>
             
             <TextInput 
               style={styles.input}
@@ -421,7 +477,7 @@ export default function ProfileScreen() {
 
             <TextInput 
               style={styles.input}
-              placeholder="Roll Number (e.g. CS202601) *"
+              placeholder="Roll Number / Staff ID *"
               value={rollNumber}
               onChangeText={setRollNumber}
               autoCapitalize="characters"
@@ -429,41 +485,9 @@ export default function ProfileScreen() {
 
             <TextInput 
               style={styles.input}
-              placeholder="Branch (e.g. Computer Science) *"
+              placeholder="Branch / Department *"
               value={branch}
               onChangeText={setBranch}
-            />
-
-            <TextInput 
-              style={styles.input}
-              placeholder="Graduation Year (e.g. 2026) *"
-              value={graduationYear}
-              onChangeText={setGraduationYear}
-              keyboardType="numeric"
-            />
-
-            <TextInput 
-              style={styles.input}
-              placeholder="CGPA (e.g. 8.5)"
-              value={cgpa}
-              onChangeText={setCgpa}
-              keyboardType="numeric"
-            />
-
-            <TextInput 
-              style={[styles.input, styles.textArea]}
-              placeholder="Short Bio / Summary"
-              value={bio}
-              onChangeText={setBio}
-              multiline
-              numberOfLines={3}
-            />
-
-            <TextInput 
-              style={styles.input}
-              placeholder="Skills (comma separated, e.g. React, Node.js)"
-              value={skills}
-              onChangeText={setSkills}
             />
 
             <TouchableOpacity style={styles.button} onPress={handleCreateProfile}>
@@ -481,52 +505,83 @@ export default function ProfileScreen() {
           <View style={styles.profileCard}>
             <View style={styles.profileHeader}>
               <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarText}>{profile.name ? profile.name[0].toUpperCase() : 'S'}</Text>
+                <Text style={styles.avatarText}>{profile.name ? profile.name[0].toUpperCase() : 'U'}</Text>
               </View>
               <Text style={styles.profileName}>{profile.name}</Text>
-              <Text style={styles.profileRoll}>{profile.rollNumber} | {profile.branch}</Text>
-              <Text style={styles.profileGrad}>Class of {profile.graduationYear}</Text>
+              {profile.employeeId ? (
+                <>
+                  <Text style={styles.profileRoll}>Staff ID: {profile.employeeId}</Text>
+                  <Text style={styles.profileGrad}>{profile.department}</Text>
+                </>
+              ) : profile.collegeId ? (
+                <>
+                  <Text style={styles.profileRoll}>Faculty ID: {profile.collegeId} | {profile.post}</Text>
+                  <Text style={styles.profileGrad}>{profile.department}</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.profileRoll}>{profile.rollNumber} | {profile.branch}</Text>
+                  <Text style={styles.profileGrad}>Class of {profile.graduationYear || '2026'}</Text>
+                </>
+              )}
             </View>
 
             <View style={styles.divider} />
 
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>About</Text>
-              <Text style={styles.bioText}>{profile.bio || "No bio added yet."}</Text>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Academic Status</Text>
-              <View style={styles.statsRow}>
-                <View style={styles.statBox}>
-                  <Text style={styles.statVal}>{profile.cgpa?.toFixed(2) || '0.00'}</Text>
-                  <Text style={styles.statLbl}>CGPA</Text>
-                </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statVal}>{profile.backlogs ?? 0}</Text>
-                  <Text style={styles.statLbl}>Backlogs</Text>
+            {profile.employeeId ? (
+              /* Management Profile Information */
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Management Desk Overview</Text>
+                <View style={{ backgroundColor: '#E6F4EA', padding: 12, borderRadius: 10, marginTop: 6 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#064E3B' }}>🏢 Office: {profile.officeLocation || "Central Admin Room 102"}</Text>
+                  <Text style={{ fontSize: 12, color: '#059669', marginTop: 4 }}>📞 Phone: {profile.phone || "Campus Extension"}</Text>
+                  <Text style={{ fontSize: 11, color: '#374151', marginTop: 6, fontWeight: '600' }}>
+                    Assigned Responsibilities: Lost & Found Item Log & Campus Facilities Complaints Resolution
+                  </Text>
                 </View>
               </View>
-            </View>
+            ) : (
+              /* Student Profile Details */
+              <>
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>About</Text>
+                  <Text style={styles.bioText}>{profile.bio || "No bio added yet."}</Text>
+                </View>
 
-            <View style={styles.divider} />
+                <View style={styles.divider} />
 
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Skills</Text>
-              <View style={styles.skillsContainer}>
-                {profile.skills && profile.skills.length > 0 ? (
-                  profile.skills.map((skill: string, index: number) => (
-                    <View key={index} style={styles.skillBadge}>
-                      <Text style={styles.skillBadgeText}>{skill}</Text>
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Academic Status</Text>
+                  <View style={styles.statsRow}>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statVal}>{profile.cgpa?.toFixed(2) || '0.00'}</Text>
+                      <Text style={styles.statLbl}>CGPA</Text>
                     </View>
-                  ))
-                ) : (
-                  <Text style={styles.emptyText}>No skills listed yet.</Text>
-                )}
-              </View>
-            </View>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statVal}>{profile.backlogs ?? 0}</Text>
+                      <Text style={styles.statLbl}>Backlogs</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Skills</Text>
+                  <View style={styles.skillsContainer}>
+                    {profile.skills && profile.skills.length > 0 ? (
+                      profile.skills.map((skill: string, index: number) => (
+                        <View key={index} style={styles.skillBadge}>
+                          <Text style={styles.skillBadgeText}>{skill}</Text>
+                        </View>
+                      ))
+                    ) : (
+                      <Text style={styles.emptyText}>No skills listed yet.</Text>
+                    )}
+                  </View>
+                </View>
+              </>
+            )}
 
             <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
               <Text style={styles.logoutButtonText}>Logout</Text>
