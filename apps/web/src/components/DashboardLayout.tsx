@@ -22,6 +22,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [studentSemester, setStudentSemester] = useState(1);
   const [facultyDepartment, setFacultyDepartment] = useState("");
 
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
   useEffect(() => {
     setMounted(true);
     const savedToken = localStorage.getItem("trellis_token");
@@ -73,6 +75,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           }
         })
         .catch((err) => console.error("Profile sync failed in DashboardLayout:", err));
+
+      // Fetch unread notifications
+      fetch(`${BACKEND_URL}/api/notifications/unread-count`, {
+        headers: { Authorization: `Bearer ${savedToken}` }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) setUnreadNotifCount(data.count || 0);
+        })
+        .catch(() => {});
     }
   }, [router, pathname]);
 
@@ -124,8 +136,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {menuItems
             .filter((item) => {
-              if (userRole === "management") {
-                return item.path === "/#desktop" || item.path === "/complaints" || item.path === "/lostfound";
+              if (userRole === "placement_head") {
+                return item.path === "/placements";
               }
               if (userRole === "student") {
                 if (item.path === "/placements") {
@@ -133,7 +145,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   if (!isAllowed) return false;
                 }
               } else if (userRole === "faculty") {
-                if (item.path === "/placements" || item.path === "/complaints") {
+                if (item.path === "/complaints") {
                   return false;
                 }
                 if (item.path === "/sensors") {
@@ -152,6 +164,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             .map((item) => {
               const isGated = item.path !== "/#desktop" && item.path !== "/finder";
               const isActive = pathname === item.path || (item.path === "/#desktop" && pathname === "/");
+              const hasBadge = item.path === "/placements" && unreadNotifCount > 0;
             return (
               <Link
                 key={item.name}
@@ -169,7 +182,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     : "text-zinc-600 hover:bg-emerald-50/50 hover:text-emerald-800"
                 }`}
               >
-                <span>{item.name}</span>
+                <div className="flex items-center gap-2">
+                  <span>{item.name}</span>
+                  {hasBadge && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-black bg-emerald-600 text-white rounded-full">
+                      {unreadNotifCount}
+                    </span>
+                  )}
+                </div>
                 {isGated && !token && <span className="text-xs">🔒</span>}
               </Link>
             );
@@ -186,7 +206,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 </div>
                 <div className="overflow-hidden">
                   <p className="text-xs font-black text-emerald-800 truncate">{userEmail}</p>
-                  <p className="text-[9px] uppercase font-bold text-emerald-600">{userRole}</p>
+                  <p className="text-[9px] uppercase font-bold text-emerald-600">
+                    {userRole === "placement_head" ? "Placement Head" : userRole}
+                  </p>
                 </div>
               </div>
               <button
@@ -210,7 +232,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         <main className="flex-grow p-4 md:p-8 overflow-y-auto">
-          {children}
+          {userRole === "placement_head" && pathname !== "/placements" ? (
+            <div className="bg-white border border-rose-100 rounded-3xl p-8 text-center max-w-lg mx-auto mt-12 shadow-sm space-y-4">
+              <span className="text-4xl">💼</span>
+              <h2 className="text-lg font-black text-rose-800">Access Restricted</h2>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                As Placement Head, your account has dedicated access exclusively to the Placement Board. Other campus modules are restricted.
+              </p>
+              <button
+                onClick={() => router.push("/placements")}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+              >
+                Go to Placement Board ➔
+              </button>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

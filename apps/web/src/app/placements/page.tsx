@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { io } from "socket.io-client";
 
 export default function PlacementsPage() {
   const BACKEND_URL = "http://localhost:5000";
@@ -16,7 +17,15 @@ export default function PlacementsPage() {
   const [placementJobs, setPlacementJobs] = useState<any[]>([]);
   const [placementMatches, setPlacementMatches] = useState<any[]>([]);
   const [allRegistrations, setAllRegistrations] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<"student-profile" | "student-matches" | "admin-post" | "admin-profiles">("student-profile");
+  const [candidateSearchQuery, setCandidateSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<"student-profile" | "student-matches" | "admin-post" | "admin-profiles" | "notifications">("student-profile");
+
+  // Notification States
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
+  const [broadcastModalJob, setBroadcastModalJob] = useState<any>(null);
+  const [broadcastMessage, setBroadcastMessage] = useState<string>("");
+  const [broadcastSending, setBroadcastSending] = useState<boolean>(false);
 
   // Onboarding / Semester timing state
   const [studentSemester, setStudentSemester] = useState<number>(1);
@@ -105,13 +114,44 @@ export default function PlacementsPage() {
   const [postDeadline, setPostDeadline] = useState("");
   const [postRules, setPostRules] = useState<any[]>([
     { field: "cgpa", operator: ">=", value: "7.0" },
-    { field: "backlogCount", operator: "==", value: "0" }
+    { field: "backlogCount", operator: ">=", value: "0" }
   ]);
+
+  // Faculty Job Edit Modal State
+  const [editingJob, setEditingJob] = useState<any>(null);
+  const [editCompanyName, setEditCompanyName] = useState("");
+  const [editRole, setEditRole] = useState("");
+  const [editType, setEditType] = useState("full-time");
+  const [editDescription, setEditDescription] = useState("");
+  const [editDeadline, setEditDeadline] = useState("");
+  const [editRules, setEditRules] = useState<any[]>([]);
 
   // Admin Audit Log and Details view Modal states
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [showAdminEditForm, setShowAdminEditForm] = useState(false);
   const [adminEdits, setAdminEdits] = useState<any>({});
+  const [updatingAcademicResume, setUpdatingAcademicResume] = useState(false);
+
+  // Candidate Directory Filter, Sort, and View states
+  const [candidateBranchFilter, setCandidateBranchFilter] = useState("all");
+  const [candidateStatusFilter, setCandidateStatusFilter] = useState("all");
+  const [candidateZeroBacklogOnly, setCandidateZeroBacklogOnly] = useState(false);
+  const [candidateViewMode, setCandidateViewMode] = useState<"table" | "cards">("table");
+  const [candidateSortField, setCandidateSortField] = useState<"cgpa" | "roll" | "name" | "none">("none");
+  const [candidateSortOrder, setCandidateSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Faculty Broadcast & Activity Center states
+  const [broadcastsList, setBroadcastsList] = useState<any[]>([]);
+  const [activityFeed, setActivityFeed] = useState<any[]>([]);
+  const [broadcastSubTab, setBroadcastSubTab] = useState<"compose" | "history" | "activity">("compose");
+  const [broadcastTitle, setBroadcastTitle] = useState("");
+  const [broadcastMsg, setBroadcastMsg] = useState("");
+  const [broadcastType, setBroadcastType] = useState<"shortlist" | "general" | "reminder">("shortlist");
+  const [broadcastTarget, setBroadcastTarget] = useState<"all_registered" | "drive_candidates" | "selected_students">("all_registered");
+  const [broadcastJobId, setBroadcastJobId] = useState("");
+  const [broadcastSelectedRolls, setBroadcastSelectedRolls] = useState<string[]>([]);
+  const [isSubmittingBroadcast, setIsSubmittingBroadcast] = useState(false);
+  const [studentSearchForBroadcast, setStudentSearchForBroadcast] = useState("");
 
   useEffect(() => {
     const savedToken = localStorage.getItem("trellis_token");
@@ -125,7 +165,7 @@ export default function PlacementsPage() {
       setUserEmail(savedEmail);
       setStudentYear(savedYear);
       setStudentSemester(savedSemester);
-      if (savedRole === "admin" || savedRole === "faculty") {
+      if (savedRole === "admin" || savedRole === "faculty" || savedRole === "placement_head") {
         setActiveTab("admin-post");
       } else {
         setActiveTab("student-profile");
@@ -138,11 +178,105 @@ export default function PlacementsPage() {
       fetchStudentSemester();
       fetchPlacementRegistration();
       fetchPlacementJobs();
-      if (userRole === "admin" || userRole === "faculty") {
+      fetchNotifications();
+      if (userRole === "admin" || userRole === "faculty" || userRole === "placement_head") {
         fetchAllRegistrations();
       }
+
+      // Socket.io connection for real-time notifications
+      const socket = io(BACKEND_URL);
+      socket.on("notification:new", (newNotif: any) => {
+        setNotifications((prev) => [newNotif, ...prev]);
+        setUnreadNotifCount((c) => c + 1);
+      });
+
+      return () => {
+        socket.disconnect();
+      };
     }
   }, [token, userEmail, userRole]);
+
+  const fetchNotifications = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/notifications`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotifications(data.notifications || []);
+        setUnreadNotifCount(data.unreadCount || 0);
+      }
+    } catch (err) {
+      console.error("Failed to load notifications:", err);
+    }
+  };
+
+  const handleMarkNotifRead = async (id: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/notifications/${id}/read`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotifications((prev) =>
+          prev.map((n) => (n._id === id ? { ...n, isRead: true } : n))
+        );
+        setUnreadNotifCount((c) => Math.max(0, c - 1));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleMarkAllNotifsRead = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/notifications/read-all`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+        setUnreadNotifCount(0);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSendBroadcast = async () => {
+    if (!broadcastMessage.trim() || !broadcastModalJob) return;
+    setBroadcastSending(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/notifications/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          jobPostingId: broadcastModalJob._id,
+          targetAllEligible: true,
+          message: broadcastMessage
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || "Alert dispatched to eligible candidates!");
+        setBroadcastModalJob(null);
+        setBroadcastMessage("");
+        fetchNotifications();
+      } else {
+        alert(data.message || "Failed to dispatch alert.");
+      }
+    } catch (err) {
+      alert("Error sending broadcast notification.");
+    } finally {
+      setBroadcastSending(false);
+    }
+  };
 
   // Read student's semester to validate M3 Timing Window (Backend validation also handles this)
   const fetchStudentSemester = async () => {
@@ -263,12 +397,151 @@ export default function PlacementsPage() {
 
   const fetchAllRegistrations = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/placement/registration/all`, { // Wait, list endpoint or custom endpoint?
-        // Let's check backend placement routes: wait, router.get("/registration/:studentId") is there, do we have an "all" endpoint?
-        // Ah! In backend placementController there is no listAll, but let's check verify token
+      const res = await fetch(`${BACKEND_URL}/api/placement/registrations`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
+      const data = await res.json();
+      if (data.success && data.registrations) {
+        setAllRegistrations(data.registrations);
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Failed to fetch all registrations:", err);
+    }
+  };
+
+  // Helper: Export candidate list to Excel / CSV format
+  const handleExportCandidatesCsv = (candidates: any[]) => {
+    if (!candidates || candidates.length === 0) {
+      alert("No candidate data to export.");
+      return;
+    }
+
+    const headers = [
+      "Sr",
+      "Roll Number",
+      "Full Name",
+      "Email (Mail)",
+      "Phone",
+      "Branch",
+      "Calculated CGPA",
+      "Active Backlogs",
+      "10th %",
+      "12th %",
+      "Academic Gap (Yrs)",
+      "Current Address",
+      "Status",
+      "Resume URL"
+    ];
+
+    const escapeCsv = (val: any) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = candidates.map((reg, index) => {
+      const curAddr = reg.personal?.currentAddress
+        ? `${reg.personal.currentAddress.addressLine || ""}, ${reg.personal.currentAddress.city || ""}, ${reg.personal.currentAddress.state || ""} - ${reg.personal.currentAddress.pincode || ""}`
+        : "";
+
+      return [
+        index + 1,
+        escapeCsv(reg.academic?.rollNumber || "N/A"),
+        escapeCsv(reg.personal?.fullName || "Student"),
+        escapeCsv(reg.personal?.email || reg.studentId?.email || ""),
+        escapeCsv(reg.personal?.phone || ""),
+        escapeCsv(reg.academic?.branch || "N/A"),
+        typeof reg.academic?.cgpa === "number" ? reg.academic.cgpa.toFixed(2) : reg.academic?.cgpa || 0,
+        reg.academic?.backlogCount || 0,
+        reg.academic?.tenth?.percentage ? `${reg.academic.tenth.percentage}%` : "N/A",
+        reg.academic?.twelfth?.percentage ? `${reg.academic.twelfth.percentage}%` : "N/A",
+        reg.academic?.overallEducationGap || 0,
+        escapeCsv(curAddr),
+        escapeCsv(reg.status || "draft"),
+        escapeCsv(reg.documents?.resumeUrl || "")
+      ].join(",");
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Trellis_Placement_Candidates_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const fetchBroadcasts = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/placement/broadcasts`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && data.broadcasts) {
+        setBroadcastsList(data.broadcasts);
+      }
+    } catch (err) {
+      console.error("Failed to fetch broadcasts:", err);
+    }
+  };
+
+  const fetchActivityFeed = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/placement/activity-feed`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && data.activities) {
+        setActivityFeed(data.activities);
+      }
+    } catch (err) {
+      console.error("Failed to fetch activity feed:", err);
+    }
+  };
+
+  const handleSendCustomBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastTitle.trim() || !broadcastMsg.trim()) {
+      alert("Please provide both title and announcement message.");
+      return;
+    }
+
+    setIsSubmittingBroadcast(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/placement/broadcasts/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: broadcastTitle,
+          message: broadcastMsg,
+          broadcastType,
+          targetType: broadcastTarget,
+          jobPostingId: broadcastJobId || undefined,
+          selectedStudentIds: broadcastSelectedRolls
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || "Broadcast successfully sent to students!");
+        setBroadcastTitle("");
+        setBroadcastMsg("");
+        setBroadcastSelectedRolls([]);
+        fetchBroadcasts();
+        fetchActivityFeed();
+        setBroadcastSubTab("history");
+      } else {
+        alert(data.message || "Failed to send broadcast.");
+      }
+    } catch (err) {
+      console.error("Broadcast send error:", err);
+      alert("Error sending broadcast.");
+    } finally {
+      setIsSubmittingBroadcast(false);
     }
   };
 
@@ -490,6 +763,49 @@ export default function PlacementsPage() {
     }
   };
 
+  // Student update only resume & semester SGPAs/CGPA
+  const handleUpdateAcademicAndResume = async () => {
+    if (!placementReg) return;
+    setUpdatingAcademicResume(true);
+    try {
+      const semesterSgpa = [
+        { semester: 1, sgpa: parseFloat(sgpa1) || 0 },
+        { semester: 2, sgpa: parseFloat(sgpa2) || 0 },
+        { semester: 3, sgpa: parseFloat(sgpa3) || 0 },
+        { semester: 4, sgpa: parseFloat(sgpa4) || 0 }
+      ];
+      if (!isRetryAttempt) {
+        semesterSgpa.push({ semester: 5, sgpa: parseFloat(sgpa5) || 0 });
+      }
+
+      const res = await fetch(`${BACKEND_URL}/api/placement/registration/${userEmail}/student-update`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          semesterSgpa,
+          resumeUrl
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert("Resume and Semester CGPA updated successfully! Active placement eligibility recalculated.");
+        fetchPlacementRegistration();
+        fetchMatches();
+      } else {
+        alert(data.message || "Failed to update profile.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error updating profile.");
+    } finally {
+      setUpdatingAcademicResume(false);
+    }
+  };
+
   // Student Match Actions
   const handleStudentDecision = async (jobId: string, decision: "applied" | "no-apply") => {
     setLoading(true);
@@ -578,6 +894,88 @@ export default function PlacementsPage() {
     }
   };
 
+  const handleOpenEditJob = (job: any) => {
+    setEditingJob(job);
+    setEditCompanyName(job.companyName || "");
+    setEditRole(job.role || "");
+    setEditType(job.type || "full-time");
+    setEditDescription(job.description || "");
+    
+    if (job.applicationDeadline) {
+      const d = new Date(job.applicationDeadline);
+      const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      setEditDeadline(iso);
+    } else {
+      setEditDeadline("");
+    }
+    
+    setEditRules(job.eligibilityRules ? JSON.parse(JSON.stringify(job.eligibilityRules)) : []);
+  };
+
+  const handleUpdateJob = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingJob) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/placement/jobs/${editingJob._id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          companyName: editCompanyName,
+          role: editRole,
+          type: editType,
+          description: editDescription,
+          applicationDeadline: editDeadline ? new Date(editDeadline) : undefined,
+          eligibilityRules: editRules
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert("Placement drive updated successfully and eligible candidates re-matched!");
+        setEditingJob(null);
+        fetchPlacementJobs();
+      } else {
+        alert(data.message || "Failed to update drive.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error updating drive.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteJob = async (jobId: string, companyName: string) => {
+    if (!window.confirm(`Are you sure you want to delete the drive for "${companyName}"? This action cannot be undone.`)) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/placement/jobs/${jobId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Drive deleted successfully.");
+        fetchPlacementJobs();
+      } else {
+        alert(data.message || "Failed to delete drive.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error deleting drive.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Audit and Admin edit logic
   const handleLoadStudentRegistrationForAdmin = async (studEmail: string) => {
     setLoading(true);
@@ -649,7 +1047,7 @@ export default function PlacementsPage() {
   };
 
   const isYearSemAllowed = studentYear >= 3 || studentSemester >= 6;
-  const isRestricted = (userRole === "student" && !isYearSemAllowed) || userRole === "faculty";
+  const isRestricted = userRole === "student" && !isYearSemAllowed;
 
   if (isRestricted) {
     return (
@@ -658,9 +1056,7 @@ export default function PlacementsPage() {
           <span className="text-4xl">💼</span>
           <h2 className="text-lg font-black text-rose-800">Access Restricted</h2>
           <p className="text-xs text-zinc-500 leading-relaxed">
-            {userRole === "faculty"
-              ? "The Placement Board is not accessible to faculty members."
-              : "The Placement Board is restricted to students in their 4th Year or 7th Semester (and above)."}
+            The Placement Board is restricted to students in Semester 6 and above.
           </p>
         </div>
       </DashboardLayout>
@@ -675,10 +1071,10 @@ export default function PlacementsPage() {
         <div className="pb-4 border-b border-emerald-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h3 className="text-2xl font-black text-emerald-800 tracking-tight">Placement & Eligibility Dashboard</h3>
-            <p className="text-xs text-zinc-500 mt-1">Structured placements dashboard with rule-based auto matching (IPS Academy, Indore)</p>
+            <p className="text-xs text-zinc-500 mt-1">Structured placements dashboard with rule-based auto matching & alerts (IPS Academy, Indore)</p>
           </div>
           
-          <div className="flex bg-emerald-50 rounded-2xl p-1 shrink-0">
+          <div className="flex bg-emerald-50 rounded-2xl p-1 shrink-0 flex-wrap gap-1">
             {userRole === "student" ? (
               <>
                 <button
@@ -697,6 +1093,19 @@ export default function PlacementsPage() {
                 >
                   Matched Openings ({placementMatches.length})
                 </button>
+                <button
+                  onClick={() => setActiveTab("notifications")}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 ${
+                    activeTab === "notifications" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
+                  }`}
+                >
+                  <span>🔔 Alerts</span>
+                  {unreadNotifCount > 0 && (
+                    <span className="px-1.5 py-0.2 bg-emerald-600 text-white rounded-full text-[10px] font-black">
+                      {unreadNotifCount}
+                    </span>
+                  )}
+                </button>
               </>
             ) : (
               <>
@@ -709,12 +1118,32 @@ export default function PlacementsPage() {
                   Publish Job Drive
                 </button>
                 <button
-                  onClick={() => setActiveTab("admin-profiles")}
+                  onClick={() => {
+                    setActiveTab("admin-profiles");
+                    fetchAllRegistrations();
+                  }}
                   className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all ${
                     activeTab === "admin-profiles" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
                   }`}
                 >
                   Verify Candidates ({allRegistrations.length})
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab("notifications");
+                    fetchBroadcasts();
+                    fetchActivityFeed();
+                  }}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 ${
+                    activeTab === "notifications" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
+                  }`}
+                >
+                  <span>🔔 Alerts & Broadcasts</span>
+                  {unreadNotifCount > 0 && (
+                    <span className="px-1.5 py-0.2 bg-emerald-600 text-white rounded-full text-[10px] font-black">
+                      {unreadNotifCount}
+                    </span>
+                  )}
                 </button>
               </>
             )}
@@ -751,7 +1180,9 @@ export default function PlacementsPage() {
                     {/* Derived Stats grid */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl text-center">
-                        <p className="text-2xl font-black text-zinc-800">{placementReg.academic?.cgpa?.toFixed(2)}</p>
+                        <p className="text-2xl font-black text-emerald-700">
+                          {calculateFrontendCgpa() > 0 ? calculateFrontendCgpa().toFixed(2) : (placementReg.academic?.cgpa?.toFixed(2) || "0.00")}
+                        </p>
                         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Calculated CGPA</p>
                       </div>
                       <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl text-center">
@@ -848,32 +1279,124 @@ export default function PlacementsPage() {
                             <p><strong>Roll / Enrollment:</strong> {placementReg.academic?.rollNumber} / {placementReg.academic?.enrollmentNumber}</p>
                           </div>
                           <div>
-                            <p className="font-bold text-zinc-500 uppercase text-[9px] mb-1">Semester SGPA Track:</p>
-                            <div className="flex gap-2 flex-wrap mt-1">
-                              {placementReg.academic?.semesterSgpa?.map((item: any) => (
-                                <span key={item.semester} className="bg-white border border-zinc-200 px-2.5 py-1 rounded-lg font-bold text-zinc-700">
-                                  Sem {item.semester}: {item.sgpa}
-                                </span>
-                              ))}
+                            <p className="font-bold text-zinc-500 uppercase text-[9px] mb-1">Semester SGPA Track (Editable):</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1">
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 1</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={sgpa1}
+                                  onChange={(e) => setSgpa1(e.target.value)}
+                                  className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 2</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={sgpa2}
+                                  onChange={(e) => setSgpa2(e.target.value)}
+                                  className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 3</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={sgpa3}
+                                  onChange={(e) => setSgpa3(e.target.value)}
+                                  className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 4</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={sgpa4}
+                                  onChange={(e) => setSgpa4(e.target.value)}
+                                  className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 5</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={sgpa5}
+                                  onChange={(e) => setSgpa5(e.target.value)}
+                                  className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
                             </div>
+                            <p className="text-[10px] text-emerald-700 font-bold mt-1.5">
+                              ✨ Live Calculated CGPA: {calculateFrontendCgpa().toFixed(2)}
+                            </p>
                           </div>
                         </div>
                       </div>
 
                       {/* Section 4: Identity Verification & Documents */}
-                      <div className="bg-zinc-50/50 p-4 border border-zinc-150 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="flex items-center gap-3">
-                          <img src={placementReg.identity?.photoUrl} alt="Passport Photograph" className="w-14 h-14 object-cover rounded-xl border border-zinc-200 shadow-sm" />
-                          <div>
-                            <p className="text-xs font-bold text-zinc-800">{placementReg.personal?.fullName}</p>
-                            <p className="text-[10px] text-zinc-400">APAAR ID: {placementReg.identity?.apaarId}</p>
+                      <div className="bg-zinc-50/50 p-4 border border-zinc-150 rounded-2xl space-y-4">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                          <div className="flex items-center gap-3">
+                            <img src={placementReg.identity?.photoUrl} alt="Passport Photograph" className="w-14 h-14 object-cover rounded-xl border border-zinc-200 shadow-sm" />
+                            <div>
+                              <p className="text-xs font-bold text-zinc-800">{placementReg.personal?.fullName}</p>
+                              <p className="text-[10px] text-zinc-400">APAAR ID: {placementReg.identity?.apaarId}</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs font-bold text-emerald-800">
+                            {resumeUrl && (
+                              <a href={resumeUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-sm">📄 View Current Resume</a>
+                            )}
+                            {placementReg.documents?.tenthMarksheetUrl && (
+                              <a href={placementReg.documents?.tenthMarksheetUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-sm">📄 View 10th Marksheet</a>
+                            )}
+                            {placementReg.documents?.twelfthMarksheetUrl && (
+                              <a href={placementReg.documents?.twelfthMarksheetUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-sm">📄 View 12th Marksheet</a>
+                            )}
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-2 text-xs font-bold text-emerald-800">
-                          <a href={placementReg.documents?.resumeUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-sm">📄 View Resume Snapshot</a>
-                          <a href={placementReg.documents?.tenthMarksheetUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-sm">📄 View 10th Marksheet</a>
-                          <a href={placementReg.documents?.twelfthMarksheetUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-sm">📄 View 12th Marksheet</a>
+
+                        {/* Editable Resume Upload */}
+                        <div className="pt-3 border-t border-zinc-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-bold text-emerald-800">Update Resume File (PDF)</p>
+                            <p className="text-[10px] text-zinc-400">Upload an updated PDF resume for placements</p>
+                          </div>
+                          <div className="max-w-xs w-full">
+                            <input
+                              type="file"
+                              accept=".pdf"
+                              onChange={(e) => handleFileUpload(e, setResumeUrl)}
+                              className="w-full bg-white border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-700"
+                            />
+                          </div>
                         </div>
+                      </div>
+
+                      {/* Action Bar for Student Update */}
+                      <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3">
+                        <div className="text-xs text-emerald-900">
+                          <p className="font-bold flex items-center gap-1.5">
+                            <span>🔒</span> Institute Policy: Only Resume & Semester SGPAs are editable.
+                          </p>
+                          <p className="text-[10px] text-emerald-700 mt-0.5">
+                            Saving will recalculate your Cumulative CGPA and update active placement drive matching immediately.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={updatingAcademicResume}
+                          onClick={handleUpdateAcademicAndResume}
+                          className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 shrink-0"
+                        >
+                          {updatingAcademicResume ? "Saving Updates..." : "💾 Update Resume & Semester CGPA"}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1182,57 +1705,11 @@ export default function PlacementsPage() {
 
                     {/* Section 5: Documents File uploaders */}
                     <div className="space-y-4">
-                      <h5 className="text-xs font-black text-emerald-800 uppercase tracking-widest border-b border-emerald-50 pb-1">Mandatory Marksheets & Resume Uploads (PDF/Image)</h5>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-zinc-500 mb-1">Resume File Upload *</label>
-                          <input type="file" accept=".pdf" onChange={(e) => handleFileUpload(e, setResumeUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs" />
-                          {resumeUrl && <span className="text-[10px] text-emerald-700 block mt-1 font-bold">✔ Resume uploaded</span>}
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-zinc-500 mb-1">10th Marksheet Upload *</label>
-                          <input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileUpload(e, setTenthMarksheetUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs" />
-                          {tenthMarksheetUrl && <span className="text-[10px] text-emerald-700 block mt-1 font-bold">✔ 10th Marksheet uploaded</span>}
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-zinc-500 mb-1">12th Marksheet Upload *</label>
-                          <input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileUpload(e, setTwelfthMarksheetUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs" />
-                          {twelfthMarksheetUrl && <span className="text-[10px] text-emerald-700 block mt-1 font-bold">✔ 12th Marksheet uploaded</span>}
-                        </div>
-                      </div>
-
-                      {/* Semester marksheets */}
-                      <div className="pt-2 space-y-3">
-                        <label className="block text-xs font-bold text-zinc-500 uppercase">Upload Semester-wise Marksheets *</label>
-                        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-                          <div>
-                            <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Semester 1</label>
-                            <input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileUpload(e, setSem1MarksheetUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-1 text-[9px]" />
-                            {sem1MarksheetUrl && <span className="text-[9px] text-emerald-700 block mt-0.5 font-bold">✔ Uploaded</span>}
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Semester 2</label>
-                            <input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileUpload(e, setSem2MarksheetUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-1 text-[9px]" />
-                            {sem2MarksheetUrl && <span className="text-[9px] text-emerald-700 block mt-0.5 font-bold">✔ Uploaded</span>}
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Semester 3</label>
-                            <input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileUpload(e, setSem3MarksheetUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-1 text-[9px]" />
-                            {sem3MarksheetUrl && <span className="text-[9px] text-emerald-700 block mt-0.5 font-bold">✔ Uploaded</span>}
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Semester 4</label>
-                            <input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileUpload(e, setSem4MarksheetUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-1 text-[9px]" />
-                            {sem4MarksheetUrl && <span className="text-[9px] text-emerald-700 block mt-0.5 font-bold">✔ Uploaded</span>}
-                          </div>
-                          {!isRetryAttempt && (
-                            <div>
-                              <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Semester 5</label>
-                              <input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileUpload(e, setSem5MarksheetUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-1 text-[9px]" />
-                              {sem5MarksheetUrl && <span className="text-[9px] text-emerald-700 block mt-0.5 font-bold">✔ Uploaded</span>}
-                            </div>
-                          )}
-                        </div>
+                      <h5 className="text-xs font-black text-emerald-800 uppercase tracking-widest border-b border-emerald-50 pb-1">Resume Upload (PDF)</h5>
+                      <div className="max-w-md">
+                        <label className="block text-xs font-bold text-zinc-500 mb-1">Resume File Upload *</label>
+                        <input type="file" accept=".pdf" onChange={(e) => handleFileUpload(e, setResumeUrl)} className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs" />
+                        {resumeUrl && <span className="text-[10px] text-emerald-700 block mt-1 font-bold">✔ Resume uploaded</span>}
                       </div>
                     </div>
 
@@ -1354,8 +1831,8 @@ export default function PlacementsPage() {
           </div>
         )}
 
-        {/* 2. ADMIN/FACULTY VIEW */}
-        {(userRole === "admin" || userRole === "faculty") && (
+        {/* 2. ADMIN/FACULTY/PLACEMENT HEAD VIEW */}
+        {(userRole === "admin" || userRole === "faculty" || userRole === "placement_head") && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             
             {/* Tab: Publish drive */}
@@ -1423,22 +1900,9 @@ export default function PlacementsPage() {
                               <option value="overallEducationGap">Overall Gap</option>
                               <option value="branch">Branch</option>
                             </select>
-                            <select
-                              value={rule.operator}
-                              onChange={(e) => {
-                                const newRules = [...postRules];
-                                newRules[idx].operator = e.target.value;
-                                setPostRules(newRules);
-                              }}
-                              className="bg-zinc-50 border border-zinc-200 rounded p-1.5 text-[10px]"
-                            >
-                              <option value="==">==</option>
-                              <option value=">=">&gt;=</option>
-                              <option value="<=">&lt;=</option>
-                              <option value=">">&gt;</option>
-                              <option value="<">&lt;</option>
-                              <option value="in">in</option>
-                            </select>
+                            <div className="bg-zinc-100 border border-zinc-200 rounded px-2.5 py-1.5 text-[11px] font-black text-emerald-700 select-none flex items-center justify-center min-w-[34px]">
+                              &gt;=
+                            </div>
                             <input
                               type="text"
                               required
@@ -1482,12 +1946,36 @@ export default function PlacementsPage() {
                               <h5 className="font-extrabold text-zinc-900 text-base">{job.companyName}</h5>
                               <p className="text-xs text-zinc-500">{job.role} | {job.type === "internship" ? "Internship" : "Full-Time"}</p>
                             </div>
-                            <button
-                              onClick={() => handleDownloadPdfReport(job._id)}
-                              className="py-1.5 px-3.5 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-[10px] font-black uppercase tracking-wider rounded-lg shadow-sm"
-                            >
-                              PDF Report
-                            </button>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                onClick={() => handleOpenEditJob(job)}
+                                className="py-1.5 px-3 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-wider rounded-lg shadow-sm"
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setBroadcastModalJob(job);
+                                  setBroadcastMessage("");
+                                }}
+                                className="py-1.5 px-3 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider rounded-lg shadow-sm"
+                              >
+                                📢 Alert Candidates
+                              </button>
+                              <button
+                                onClick={() => handleDownloadPdfReport(job._id)}
+                                className="py-1.5 px-3 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-[10px] font-black uppercase tracking-wider rounded-lg shadow-sm"
+                              >
+                                PDF Report
+                              </button>
+                              <button
+                                onClick={() => handleDeleteJob(job._id, job.companyName)}
+                                className="py-1.5 px-2 bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 text-[10px] font-black rounded-lg shadow-sm"
+                                title="Delete Drive"
+                              >
+                                🗑️
+                              </button>
+                            </div>
                           </div>
                           
                           <p className="text-xs text-zinc-600 leading-relaxed">{job.description}</p>
@@ -1506,67 +1994,442 @@ export default function PlacementsPage() {
               </>
             )}
 
-            {/* Tab: Verify candidate profiles directory */}
+            {/* Tab: Verify candidate profiles directory (Excel-Like Master Sheet) */}
             {activeTab === "admin-profiles" && (
               <div className="lg:col-span-12 bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm space-y-6">
-                <div className="flex justify-between items-center">
-                  <h4 className="text-base font-bold text-zinc-900">Verify Registered Candidates</h4>
-                  <input
-                    type="text"
-                    placeholder="Search by student email..."
-                    className="bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-xs w-64"
-                    onChange={(e) => {
-                      const query = e.target.value.toLowerCase().trim();
-                      if (query) {
-                        setAllRegistrations(allRegistrations.filter(r => r.studentId?.email?.toLowerCase().includes(query)));
-                      } else {
-                        fetchAllRegistrations();
-                      }
-                    }}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {allRegistrations.map((reg) => (
-                    <div key={reg._id} className="border border-zinc-150 rounded-2xl p-5 bg-zinc-50 space-y-4">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h5 className="font-extrabold text-zinc-900 text-base">{reg.personal?.fullName}</h5>
-                          <p className="text-[11px] text-zinc-500">{reg.personal?.email}</p>
-                          <p className="text-[10px] text-zinc-400">Branch: {reg.academic?.branch} | Roll: {reg.academic?.rollNumber}</p>
-                        </div>
-                        <span className={`text-[8px] uppercase font-black px-2 py-0.5 rounded ${
-                          reg.status === "locked" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                        }`}>
-                          {reg.status}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-center text-xs font-bold text-zinc-700 bg-white p-3 rounded-xl border border-zinc-200">
-                        <div>
-                          <p className="text-[10px] text-zinc-400 font-bold mb-0.5">CGPA</p>
-                          <p className="text-sm text-zinc-800 font-black">{reg.academic?.cgpa?.toFixed(2)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-zinc-400 font-bold mb-0.5">Backlogs</p>
-                          <p className="text-sm text-zinc-800 font-black">{reg.academic?.backlogCount || 0}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <a href={reg.documents?.resumeUrl} target="_blank" rel="noreferrer" className="flex-1 py-1.5 bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50 text-[10px] font-bold rounded-lg text-center shadow-sm">
-                          Resume PDF
-                        </a>
-                        <button
-                          onClick={() => handleLoadStudentRegistrationForAdmin(reg.personal?.email)}
-                          className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg shadow-sm"
-                        >
-                          Audit & Edit Details
-                        </button>
-                      </div>
+                {/* Header & Excel Controls */}
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-zinc-150">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-lg font-black text-emerald-800">Placement Candidates Master Sheet</h4>
+                      <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-full">
+                        Excel Table View
+                      </span>
                     </div>
-                  ))}
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Live directory of students registered & locked for placement drives (Total: {allRegistrations.length})
+                    </p>
+                  </div>
+
+                  {/* Actions & Export */}
+                  <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                    {/* View Switcher */}
+                    <div className="flex bg-zinc-100 p-0.5 rounded-xl border border-zinc-200">
+                      <button
+                        onClick={() => setCandidateViewMode("table")}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                          candidateViewMode === "table" ? "bg-white text-emerald-800 shadow-2xs" : "text-zinc-500 hover:text-zinc-800"
+                        }`}
+                      >
+                        <span>📊</span> Sheet View
+                      </button>
+                      <button
+                        onClick={() => setCandidateViewMode("cards")}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                          candidateViewMode === "cards" ? "bg-white text-emerald-800 shadow-2xs" : "text-zinc-500 hover:text-zinc-800"
+                        }`}
+                      >
+                        <span>🃏</span> Card View
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={fetchAllRegistrations}
+                      className="px-3 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl shadow-2xs whitespace-nowrap flex items-center gap-1.5"
+                    >
+                      🔄 Refresh
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        const filteredData = allRegistrations.filter((reg) => {
+                          if (candidateBranchFilter !== "all" && reg.academic?.branch !== candidateBranchFilter) return false;
+                          if (candidateStatusFilter !== "all" && reg.status !== candidateStatusFilter) return false;
+                          if (candidateZeroBacklogOnly && (reg.academic?.backlogCount || 0) > 0) return false;
+                          if (candidateSearchQuery.trim()) {
+                            const q = candidateSearchQuery.toLowerCase().trim();
+                            const email = (reg.personal?.email || reg.studentId?.email || "").toLowerCase();
+                            const name = (reg.personal?.fullName || "").toLowerCase();
+                            const roll = (reg.academic?.rollNumber || "").toLowerCase();
+                            const branch = (reg.academic?.branch || "").toLowerCase();
+                            const phone = (reg.personal?.phone || "").toLowerCase();
+                            const addr = (
+                              (reg.personal?.currentAddress?.addressLine || "") +
+                              " " +
+                              (reg.personal?.currentAddress?.city || "") +
+                              " " +
+                              (reg.personal?.currentAddress?.state || "")
+                            ).toLowerCase();
+                            return email.includes(q) || name.includes(q) || roll.includes(q) || branch.includes(q) || phone.includes(q) || addr.includes(q);
+                          }
+                          return true;
+                        });
+                        handleExportCandidatesCsv(filteredData);
+                      }}
+                      className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-sm flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <span>📥</span> Export to Excel / CSV
+                    </button>
+                  </div>
                 </div>
+
+                {/* Filter and Search Bar */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 bg-zinc-50 p-3.5 rounded-2xl border border-zinc-200">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-1">Search Candidates</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Search by name, roll, email, phone, address..."
+                        className="w-full bg-white border border-zinc-200 rounded-xl pl-3 pr-8 py-2 text-xs text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                        value={candidateSearchQuery}
+                        onChange={(e) => setCandidateSearchQuery(e.target.value)}
+                      />
+                      {candidateSearchQuery && (
+                        <button
+                          onClick={() => setCandidateSearchQuery("")}
+                          className="absolute right-2.5 top-2 text-zinc-400 hover:text-zinc-600 text-xs font-bold"
+                          title="Clear search"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-1">Branch</label>
+                    <select
+                      value={candidateBranchFilter}
+                      onChange={(e) => setCandidateBranchFilter(e.target.value)}
+                      className="w-full bg-white border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 font-semibold"
+                    >
+                      <option value="all">All Branches</option>
+                      {Array.from(new Set(allRegistrations.map((r) => r.academic?.branch).filter(Boolean))).map((b: any) => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-1">Status</label>
+                    <select
+                      value={candidateStatusFilter}
+                      onChange={(e) => setCandidateStatusFilter(e.target.value)}
+                      className="w-full bg-white border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 font-semibold"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="locked">🔒 Locked Only</option>
+                      <option value="draft">📝 Draft Only</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-end pb-1.5">
+                    <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 cursor-pointer select-none bg-white border border-zinc-200 px-3 py-2 rounded-xl w-full">
+                      <input
+                        type="checkbox"
+                        checked={candidateZeroBacklogOnly}
+                        onChange={(e) => setCandidateZeroBacklogOnly(e.target.checked)}
+                        className="rounded text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>Zero Backlogs Only</span>
+                    </label>
+                  </div>
+                </div>
+
+                {(() => {
+                  let filtered = allRegistrations.filter((reg) => {
+                    // Search Query
+                    if (candidateSearchQuery.trim()) {
+                      const q = candidateSearchQuery.toLowerCase().trim();
+                      const email = (reg.personal?.email || reg.studentId?.email || "").toLowerCase();
+                      const name = (reg.personal?.fullName || "").toLowerCase();
+                      const roll = (reg.academic?.rollNumber || "").toLowerCase();
+                      const branch = (reg.academic?.branch || "").toLowerCase();
+                      const phone = (reg.personal?.phone || "").toLowerCase();
+                      const addr = (
+                        (reg.personal?.currentAddress?.addressLine || "") +
+                        " " +
+                        (reg.personal?.currentAddress?.city || "") +
+                        " " +
+                        (reg.personal?.currentAddress?.state || "") +
+                        " " +
+                        (reg.personal?.currentAddress?.pincode || "")
+                      ).toLowerCase();
+
+                      if (
+                        !email.includes(q) &&
+                        !name.includes(q) &&
+                        !roll.includes(q) &&
+                        !branch.includes(q) &&
+                        !phone.includes(q) &&
+                        !addr.includes(q)
+                      ) {
+                        return false;
+                      }
+                    }
+
+                    // Branch Filter
+                    if (candidateBranchFilter !== "all" && reg.academic?.branch !== candidateBranchFilter) {
+                      return false;
+                    }
+
+                    // Status Filter
+                    if (candidateStatusFilter !== "all" && reg.status !== candidateStatusFilter) {
+                      return false;
+                    }
+
+                    // Zero Backlog Filter
+                    if (candidateZeroBacklogOnly && (reg.academic?.backlogCount || 0) > 0) {
+                      return false;
+                    }
+
+                    return true;
+                  });
+
+                  // Sorting
+                  if (candidateSortField !== "none") {
+                    filtered = [...filtered].sort((a, b) => {
+                      let valA: any = 0;
+                      let valB: any = 0;
+                      if (candidateSortField === "cgpa") {
+                        valA = a.academic?.cgpa || 0;
+                        valB = b.academic?.cgpa || 0;
+                      } else if (candidateSortField === "roll") {
+                        valA = (a.academic?.rollNumber || "").toLowerCase();
+                        valB = (b.academic?.rollNumber || "").toLowerCase();
+                      } else if (candidateSortField === "name") {
+                        valA = (a.personal?.fullName || "").toLowerCase();
+                        valB = (b.personal?.fullName || "").toLowerCase();
+                      }
+
+                      if (valA < valB) return candidateSortOrder === "asc" ? -1 : 1;
+                      if (valA > valB) return candidateSortOrder === "asc" ? 1 : -1;
+                      return 0;
+                    });
+                  }
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="text-center py-16 border border-dashed border-zinc-200 rounded-2xl bg-zinc-50">
+                        <p className="text-sm font-bold text-zinc-600 mb-1">
+                          No candidates found matching the selected filters.
+                        </p>
+                        <p className="text-xs text-zinc-400">
+                          Try adjusting search keywords or clearing branch/backlog filters.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  const toggleSort = (field: "cgpa" | "roll" | "name") => {
+                    if (candidateSortField === field) {
+                      setCandidateSortOrder(candidateSortOrder === "asc" ? "desc" : "asc");
+                    } else {
+                      setCandidateSortField(field);
+                      setCandidateSortOrder("desc");
+                    }
+                  };
+
+                  const getSortIcon = (field: string) => {
+                    if (candidateSortField !== field) return "↕";
+                    return candidateSortOrder === "asc" ? "↑" : "↓";
+                  };
+
+                  return candidateViewMode === "table" ? (
+                    /* EXCEL-LIKE SPREADSHEET TABLE */
+                    <div className="overflow-x-auto border border-zinc-200 rounded-2xl shadow-xs bg-white">
+                      <table className="w-full text-left text-xs text-zinc-700 border-collapse">
+                        <thead className="bg-emerald-800 text-white text-[11px] uppercase tracking-wider font-extrabold sticky top-0 z-10 select-none">
+                          <tr>
+                            <th className="py-3 px-3 text-center border-r border-emerald-700/60 whitespace-nowrap">#</th>
+                            <th
+                              onClick={() => toggleSort("roll")}
+                              className="py-3 px-3 cursor-pointer hover:bg-emerald-900 border-r border-emerald-700/60 whitespace-nowrap"
+                            >
+                              Roll No {getSortIcon("roll")}
+                            </th>
+                            <th
+                              onClick={() => toggleSort("name")}
+                              className="py-3 px-3 cursor-pointer hover:bg-emerald-900 border-r border-emerald-700/60 whitespace-nowrap"
+                            >
+                              Student Name {getSortIcon("name")}
+                            </th>
+                            <th className="py-3 px-3 border-r border-emerald-700/60 whitespace-nowrap">Mail (Email)</th>
+                            <th className="py-3 px-3 border-r border-emerald-700/60 whitespace-nowrap">Phone</th>
+                            <th className="py-3 px-3 border-r border-emerald-700/60 whitespace-nowrap">Branch</th>
+                            <th
+                              onClick={() => toggleSort("cgpa")}
+                              className="py-3 px-3 text-center cursor-pointer hover:bg-emerald-900 border-r border-emerald-700/60 whitespace-nowrap"
+                            >
+                              CGPA {getSortIcon("cgpa")}
+                            </th>
+                            <th className="py-3 px-3 text-center border-r border-emerald-700/60 whitespace-nowrap">Backlogs</th>
+                            <th className="py-3 px-3 text-center border-r border-emerald-700/60 whitespace-nowrap">10th %</th>
+                            <th className="py-3 px-3 text-center border-r border-emerald-700/60 whitespace-nowrap">12th %</th>
+                            <th className="py-3 px-3 text-center border-r border-emerald-700/60 whitespace-nowrap">Gap</th>
+                            <th className="py-3 px-3 border-r border-emerald-700/60 min-w-[220px]">Current Address</th>
+                            <th className="py-3 px-3 text-center border-r border-emerald-700/60 whitespace-nowrap">Status</th>
+                            <th className="py-3 px-3 text-center border-r border-emerald-700/60 whitespace-nowrap">Resume</th>
+                            <th className="py-3 px-3 text-center whitespace-nowrap">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-150">
+                          {filtered.map((reg, idx) => {
+                            const email = reg.personal?.email || reg.studentId?.email || "N/A";
+                            const phone = reg.personal?.phone || "N/A";
+                            const curAddr = reg.personal?.currentAddress
+                              ? `${reg.personal.currentAddress.addressLine || ""}, ${reg.personal.currentAddress.city || ""}, ${reg.personal.currentAddress.state || ""} - ${reg.personal.currentAddress.pincode || ""}`
+                              : "N/A";
+                            const cgpa = typeof reg.academic?.cgpa === "number" ? reg.academic.cgpa.toFixed(2) : reg.academic?.cgpa || "0.00";
+                            const backlogs = reg.academic?.backlogCount || 0;
+
+                            return (
+                              <tr key={reg._id} className="hover:bg-emerald-50/40 transition-colors">
+                                <td className="py-2.5 px-3 text-center text-[11px] text-zinc-400 font-bold border-r border-zinc-150">
+                                  {idx + 1}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-900 border-r border-zinc-150 whitespace-nowrap">
+                                  {reg.academic?.rollNumber || "N/A"}
+                                </td>
+                                <td className="py-2.5 px-3 font-bold text-zinc-900 border-r border-zinc-150 whitespace-nowrap">
+                                  {reg.personal?.fullName || "Student"}
+                                </td>
+                                <td className="py-2.5 px-3 text-zinc-600 border-r border-zinc-150 whitespace-nowrap font-mono text-[11px]">
+                                  {email}
+                                </td>
+                                <td className="py-2.5 px-3 text-zinc-600 border-r border-zinc-150 whitespace-nowrap font-mono text-[11px]">
+                                  {phone}
+                                </td>
+                                <td className="py-2.5 px-3 font-semibold text-zinc-700 border-r border-zinc-150 whitespace-nowrap">
+                                  {reg.academic?.branch || "N/A"}
+                                </td>
+                                <td className="py-2.5 px-3 text-center border-r border-zinc-150 whitespace-nowrap">
+                                  <span className="px-2 py-0.5 rounded-full font-black text-xs bg-emerald-100 text-emerald-800">
+                                    {cgpa}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center border-r border-zinc-150 whitespace-nowrap">
+                                  <span className={`px-2 py-0.5 rounded-full font-black text-xs ${
+                                    backlogs === 0 ? "bg-zinc-100 text-zinc-700" : "bg-red-100 text-red-800"
+                                  }`}>
+                                    {backlogs}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center border-r border-zinc-150 whitespace-nowrap font-semibold">
+                                  {reg.academic?.tenth?.percentage ? `${reg.academic.tenth.percentage}%` : "N/A"}
+                                </td>
+                                <td className="py-2.5 px-3 text-center border-r border-zinc-150 whitespace-nowrap font-semibold">
+                                  {reg.academic?.twelfth?.percentage ? `${reg.academic.twelfth.percentage}%` : "N/A"}
+                                </td>
+                                <td className="py-2.5 px-3 text-center border-r border-zinc-150 whitespace-nowrap font-semibold">
+                                  {reg.academic?.overallEducationGap || 0} Yrs
+                                </td>
+                                <td className="py-2.5 px-3 text-zinc-600 border-r border-zinc-150 text-[11px] leading-tight min-w-[220px]" title={curAddr}>
+                                  {curAddr}
+                                </td>
+                                <td className="py-2.5 px-3 text-center border-r border-zinc-150 whitespace-nowrap">
+                                  <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded ${
+                                    reg.status === "locked" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                                  }`}>
+                                    {reg.status}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center border-r border-zinc-150 whitespace-nowrap">
+                                  {reg.documents?.resumeUrl ? (
+                                    <a
+                                      href={reg.documents?.resumeUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2.5 py-1 bg-white border border-zinc-200 text-emerald-700 hover:bg-emerald-50 text-[11px] font-bold rounded-lg shadow-2xs inline-flex items-center gap-1"
+                                    >
+                                      📄 PDF
+                                    </a>
+                                  ) : (
+                                    <span className="text-[10px] text-zinc-400 italic">None</span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                  <button
+                                    onClick={() => handleLoadStudentRegistrationForAdmin(email)}
+                                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-2xs"
+                                  >
+                                    Audit / Edit
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    /* CARDS VIEW */
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {filtered.map((reg) => {
+                        const email = reg.personal?.email || reg.studentId?.email || "N/A";
+                        const phone = reg.personal?.phone || "N/A";
+                        const curAddr = reg.personal?.currentAddress
+                          ? `${reg.personal.currentAddress.addressLine || ""}, ${reg.personal.currentAddress.city || ""}, ${reg.personal.currentAddress.state || ""} - ${reg.personal.currentAddress.pincode || ""}`
+                          : "N/A";
+
+                        return (
+                          <div key={reg._id} className="border border-zinc-150 rounded-2xl p-5 bg-zinc-50 space-y-4">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h5 className="font-extrabold text-zinc-900 text-base">{reg.personal?.fullName || "Student"}</h5>
+                                <p className="text-[11px] text-zinc-500 font-mono">Mail: {email}</p>
+                                <p className="text-[11px] text-zinc-500 font-mono">Phone: {phone}</p>
+                                <p className="text-[10px] text-zinc-400">Branch: {reg.academic?.branch || "N/A"} | Roll: {reg.academic?.rollNumber || "N/A"}</p>
+                              </div>
+                              <span className={`text-[8px] uppercase font-black px-2 py-0.5 rounded ${
+                                reg.status === "locked" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                              }`}>
+                                {reg.status}
+                              </span>
+                            </div>
+
+                            <div className="bg-white p-2.5 rounded-xl border border-zinc-200 text-[11px] text-zinc-600 space-y-0.5">
+                              <p className="text-[10px] uppercase font-black text-zinc-400">Current Address:</p>
+                              <p className="line-clamp-2">{curAddr}</p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 text-center text-xs font-bold text-zinc-700 bg-white p-3 rounded-xl border border-zinc-200">
+                              <div>
+                                <p className="text-[10px] text-zinc-400 font-bold mb-0.5">CGPA</p>
+                                <p className="text-sm text-zinc-800 font-black">
+                                  {typeof reg.academic?.cgpa === "number" ? reg.academic.cgpa.toFixed(2) : reg.academic?.cgpa || 0}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-zinc-400 font-bold mb-0.5">Backlogs</p>
+                                <p className="text-sm text-zinc-800 font-black">{reg.academic?.backlogCount || 0}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2">
+                              {reg.documents?.resumeUrl ? (
+                                <a href={reg.documents?.resumeUrl} target="_blank" rel="noreferrer" className="flex-1 py-1.5 bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50 text-[10px] font-bold rounded-lg text-center shadow-sm">
+                                  📄 Resume PDF
+                                </a>
+                              ) : (
+                                <span className="flex-1 py-1.5 bg-zinc-100 text-zinc-400 text-[10px] font-bold rounded-lg text-center">
+                                  No Resume
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleLoadStudentRegistrationForAdmin(email)}
+                                className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg shadow-sm"
+                              >
+                                Audit & Edit Details
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -1663,7 +2526,10 @@ export default function PlacementsPage() {
                       <p><strong>Branch:</strong> {selectedReg.academic?.branch}</p>
                       <p><strong>Calculated CGPA:</strong> {selectedReg.academic?.cgpa?.toFixed(2)}</p>
                       <p><strong>Backlogs Count:</strong> {selectedReg.academic?.backlogCount}</p>
-                      <p><strong>Education gaps:</strong> 10-12: {selectedReg.academic?.tenthToTwelfthGap} Yrs | 12-Grad: {selectedReg.academic?.twelfthToGraduationGap} Yrs | Overall: {selectedReg.academic?.overallEducationGap} Yrs</p>
+                      <p><strong>Phone:</strong> {selectedReg.personal?.phone || "N/A"}</p>
+                      <p><strong>Email:</strong> {selectedReg.personal?.email || selectedReg.studentId?.email || "N/A"}</p>
+                      <p className="col-span-2"><strong>Current Address:</strong> {selectedReg.personal?.currentAddress ? `${selectedReg.personal.currentAddress.addressLine || ""}, ${selectedReg.personal.currentAddress.city || ""}, ${selectedReg.personal.currentAddress.state || ""} - ${selectedReg.personal.currentAddress.pincode || ""}` : "N/A"}</p>
+                      <p className="col-span-2"><strong>Education gaps:</strong> 10-12: {selectedReg.academic?.tenthToTwelfthGap} Yrs | 12-Grad: {selectedReg.academic?.twelfthToGraduationGap} Yrs | Overall: {selectedReg.academic?.overallEducationGap} Yrs</p>
                     </div>
                   )}
 
@@ -1675,6 +2541,844 @@ export default function PlacementsPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* 3. NOTIFICATIONS & ALERTS TAB */}
+        {activeTab === "notifications" && (
+          userRole === "student" ? (
+            /* STUDENT NOTIFICATIONS LIST */
+            <div className="bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-zinc-150">
+                <div>
+                  <h4 className="text-lg font-black text-emerald-800">Placement Alerts & Notifications</h4>
+                  <p className="text-xs text-zinc-500 mt-1">Real-time drive alerts, eligibility confirmations, and faculty announcements</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {unreadNotifCount > 0 && (
+                    <button
+                      onClick={handleMarkAllNotifsRead}
+                      className="py-1.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 transition-all shadow-sm"
+                    >
+                      ✔ Mark All as Read
+                    </button>
+                  )}
+                  <button
+                    onClick={fetchNotifications}
+                    className="py-1.5 px-3 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 text-xs font-bold rounded-xl border border-zinc-200 transition-all shadow-sm"
+                  >
+                    🔄 Refresh
+                  </button>
+                </div>
+              </div>
+
+              {notifications.length === 0 ? (
+                <div className="text-center py-12 text-zinc-400 space-y-3">
+                  <span className="text-4xl block">🔔</span>
+                  <p className="text-sm font-bold">No notifications yet</p>
+                  <p className="text-xs">When placement drives or faculty announcements match your profile, alerts will appear here in real time.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {notifications.map((n) => {
+                    const isUnread = !n.isRead;
+                    const typeIcon =
+                      n.type === "shortlist_announcement" ? "🎯" :
+                      n.type === "placement_drive" ? "💼" :
+                      n.type === "application_status" ? "📄" :
+                      n.type === "custom_alert" ? "📢" :
+                      n.type === "eligibility_alert" ? "⚠️" : "🔔";
+
+                    return (
+                      <div
+                        key={n._id}
+                        className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${
+                          n.type === "shortlist_announcement"
+                            ? "bg-amber-50/40 border-amber-300 shadow-sm"
+                            : isUnread
+                            ? "bg-emerald-50/50 border-emerald-300 shadow-sm"
+                            : "bg-white border-zinc-150 hover:border-zinc-250"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <span className="text-2xl p-2 bg-white rounded-xl border border-zinc-150 shadow-xs shrink-0">
+                            {typeIcon}
+                          </span>
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded ${
+                                n.type === "shortlist_announcement"
+                                  ? "bg-amber-100 text-amber-900 border border-amber-300 font-black"
+                                  : (n.source === "faculty" && n.type !== "placement_drive")
+                                  ? "bg-indigo-100 text-indigo-800"
+                                  : "bg-emerald-100 text-emerald-800"
+                              }`}>
+                                {n.type === "shortlist_announcement"
+                                  ? "🎯 Shortlist Notice"
+                                  : (n.source === "faculty" && n.type !== "placement_drive")
+                                  ? "Faculty Alert"
+                                  : "System Alert"}
+                              </span>
+                              <span className="text-[10px] text-zinc-400 font-medium">
+                                {new Date(n.createdAt).toLocaleString()}
+                              </span>
+                              {isUnread && (
+                                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+                              )}
+                            </div>
+                            {n.title && (
+                              <h6 className="text-xs font-black text-zinc-900">{n.title}</h6>
+                            )}
+                            <p className="text-xs font-bold text-zinc-800 leading-relaxed break-words whitespace-pre-wrap">
+                              {n.message}
+                            </p>
+                            {n.jobPostingId && (
+                              <p className="text-[11px] text-zinc-500 font-semibold">
+                                Drive: {n.jobPostingId.companyName} — {n.jobPostingId.role}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                          {userRole === "student" && n.jobPostingId && (() => {
+                            const jId = n.jobPostingId?._id || n.jobPostingId;
+                            const matchItem = placementMatches.find(
+                              (m) => (m.jobPostingId?._id || m.jobPostingId) === jId
+                            );
+                            const isFacultyAlert =
+                              (n.source === "faculty" || n.type === "custom_alert") &&
+                              n.type !== "placement_drive";
+                            const isAlreadyApplied =
+                              matchItem?.studentDecision === "applied" ||
+                              n.message?.toLowerCase().includes("already registered");
+
+                            if (isFacultyAlert && isAlreadyApplied) {
+                              return (
+                                <button
+                                  onClick={() => {
+                                    if (isUnread) handleMarkNotifRead(n._id);
+                                    setActiveTab("student-matches");
+                                  }}
+                                  className="py-1.5 px-3 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-800 text-xs font-black rounded-xl shadow-2xs flex items-center gap-1.5"
+                                >
+                                  <span className="text-emerald-600">✔</span> Already Registered
+                                </button>
+                              );
+                            }
+
+                            return (
+                              <button
+                                onClick={() => {
+                                  if (isUnread) handleMarkNotifRead(n._id);
+                                  setActiveTab("student-matches");
+                                }}
+                                className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm"
+                              >
+                                View & Apply ➔
+                              </button>
+                            );
+                          })()}
+                          {isUnread && (
+                            <button
+                              onClick={() => handleMarkNotifRead(n._id)}
+                              className="py-1.5 px-3 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-xl shadow-sm"
+                            >
+                              Mark Read
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* FACULTY / ADMIN VIEW: PLACEMENT COMMUNICATION & ACTIVITY CENTER */
+            <div className="space-y-6">
+              {/* Header Card with Navigation Pills */}
+              <div className="bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm space-y-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-zinc-150">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xl font-black text-emerald-800">Placement Communication & Activity Center</h4>
+                      <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-full">
+                        Faculty Hub
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Conduct candidate announcements (shortlists, notices, reminders), inspect sent broadcast logs, and monitor live student activities.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        fetchBroadcasts();
+                        fetchActivityFeed();
+                      }}
+                      className="py-1.5 px-3 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 text-xs font-bold rounded-xl border border-zinc-200 transition-all shadow-2xs flex items-center gap-1.5"
+                    >
+                      🔄 Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub Tab Navigation */}
+                <div className="flex bg-zinc-100 p-1 rounded-2xl border border-zinc-200 gap-1 flex-wrap">
+                  <button
+                    onClick={() => setBroadcastSubTab("compose")}
+                    className={`px-4 py-2 text-xs font-black rounded-xl transition-all flex items-center gap-2 ${
+                      broadcastSubTab === "compose"
+                        ? "bg-white text-emerald-800 shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    <span>✍️</span> Conduct Announcement
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBroadcastSubTab("history");
+                      fetchBroadcasts();
+                    }}
+                    className={`px-4 py-2 text-xs font-black rounded-xl transition-all flex items-center gap-2 ${
+                      broadcastSubTab === "history"
+                        ? "bg-white text-emerald-800 shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    <span>📨</span> Sent Broadcasts History ({broadcastsList.length})
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBroadcastSubTab("activity");
+                      fetchActivityFeed();
+                    }}
+                    className={`px-4 py-2 text-xs font-black rounded-xl transition-all flex items-center gap-2 ${
+                      broadcastSubTab === "activity"
+                        ? "bg-white text-emerald-800 shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    <span>⚡</span> Live Student Activity Feed ({activityFeed.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-tab 1: COMPOSE ANNOUNCEMENT */}
+              {broadcastSubTab === "compose" && (
+                <div className="bg-white border border-emerald-100 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
+                  <div>
+                    <h5 className="text-base font-black text-emerald-800">Compose & Dispatch Announcement</h5>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      Messages dispatched here will immediately appear in students' notifications in real time.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleSendCustomBroadcast} className="space-y-6">
+                    {/* Announcement Category Selector */}
+                    <div>
+                      <label className="block text-xs font-black uppercase text-zinc-400 mb-2">1. Select Announcement Type</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setBroadcastType("shortlist")}
+                          className={`p-4 rounded-2xl border text-left transition-all ${
+                            broadcastType === "shortlist"
+                              ? "bg-amber-50/70 border-amber-400 shadow-sm"
+                              : "bg-zinc-50 border-zinc-200 hover:border-zinc-300"
+                          }`}
+                        >
+                          <div className="text-xl mb-1">🎯</div>
+                          <p className="font-extrabold text-xs text-zinc-900">Shortlist Announcement</p>
+                          <p className="text-[10px] text-zinc-500 mt-0.5">Announce candidates shortlisted for interview/exam rounds</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setBroadcastType("general")}
+                          className={`p-4 rounded-2xl border text-left transition-all ${
+                            broadcastType === "general"
+                              ? "bg-emerald-50/70 border-emerald-400 shadow-sm"
+                              : "bg-zinc-50 border-zinc-200 hover:border-zinc-300"
+                          }`}
+                        >
+                          <div className="text-xl mb-1">📢</div>
+                          <p className="font-extrabold text-xs text-zinc-900">General Placement Notice</p>
+                          <p className="text-[10px] text-zinc-500 mt-0.5">PPT schedules, timing changes, policy or venue updates</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setBroadcastType("reminder")}
+                          className={`p-4 rounded-2xl border text-left transition-all ${
+                            broadcastType === "reminder"
+                              ? "bg-indigo-50/70 border-indigo-400 shadow-sm"
+                              : "bg-zinc-50 border-zinc-200 hover:border-zinc-300"
+                          }`}
+                        >
+                          <div className="text-xl mb-1">⏰</div>
+                          <p className="font-extrabold text-xs text-zinc-900">Urgent Drive Reminder</p>
+                          <p className="text-[10px] text-zinc-500 mt-0.5">Remind candidates to apply or submit documents before deadline</p>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Title */}
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-700 mb-1">Announcement Title / Subject *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder={
+                          broadcastType === "shortlist"
+                            ? "e.g. TCS Technical Interview Round 1 Shortlist"
+                            : broadcastType === "reminder"
+                            ? "e.g. Urgent: Infosys Application Deadline Ending at 5 PM"
+                            : "e.g. Pre-Placement Talk Venue & Timing Update"
+                        }
+                        value={broadcastTitle}
+                        onChange={(e) => setBroadcastTitle(e.target.value)}
+                        className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                      />
+                    </div>
+
+                    {/* Target Audience */}
+                    <div className="space-y-3">
+                      <label className="block text-xs font-black uppercase text-zinc-400">2. Target Audience (Recipients)</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <label className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer select-none transition-all ${
+                          broadcastTarget === "all_registered" ? "bg-emerald-50 border-emerald-300 text-emerald-950 font-bold" : "bg-zinc-50 border-zinc-200 text-zinc-700"
+                        }`}>
+                          <input
+                            type="radio"
+                            name="broadcastTarget"
+                            value="all_registered"
+                            checked={broadcastTarget === "all_registered"}
+                            onChange={() => setBroadcastTarget("all_registered")}
+                            className="text-emerald-600"
+                          />
+                          <span className="text-xs">All Registered Students ({allRegistrations.length})</span>
+                        </label>
+
+                        <label className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer select-none transition-all ${
+                          broadcastTarget === "drive_candidates" ? "bg-emerald-50 border-emerald-300 text-emerald-950 font-bold" : "bg-zinc-50 border-zinc-200 text-zinc-700"
+                        }`}>
+                          <input
+                            type="radio"
+                            name="broadcastTarget"
+                            value="drive_candidates"
+                            checked={broadcastTarget === "drive_candidates"}
+                            onChange={() => setBroadcastTarget("drive_candidates")}
+                            className="text-emerald-600"
+                          />
+                          <span className="text-xs">Drive Candidates</span>
+                        </label>
+
+                        <label className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer select-none transition-all ${
+                          broadcastTarget === "selected_students" ? "bg-emerald-50 border-emerald-300 text-emerald-950 font-bold" : "bg-zinc-50 border-zinc-200 text-zinc-700"
+                        }`}>
+                          <input
+                            type="radio"
+                            name="broadcastTarget"
+                            value="selected_students"
+                            checked={broadcastTarget === "selected_students"}
+                            onChange={() => setBroadcastTarget("selected_students")}
+                            className="text-emerald-600"
+                          />
+                          <span className="text-xs">Selected Shortlist Candidates</span>
+                        </label>
+                      </div>
+
+                      {/* If Target is Drive Candidates */}
+                      {broadcastTarget === "drive_candidates" && (
+                        <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200 space-y-1.5">
+                          <label className="block text-xs font-bold text-zinc-700">Select Placement Drive *</label>
+                          <select
+                            required
+                            value={broadcastJobId}
+                            onChange={(e) => setBroadcastJobId(e.target.value)}
+                            className="w-full bg-white border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900"
+                          >
+                            <option value="">-- Choose Placement Drive --</option>
+                            {placementJobs.map((j) => (
+                              <option key={j._id} value={j._id}>
+                                {j.companyName} — {j.role} ({j.type})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {/* If Target is Selected Shortlisted Candidates */}
+                      {broadcastTarget === "selected_students" && (
+                        <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <p className="text-xs font-bold text-zinc-800">Pick Shortlisted Candidates ({broadcastSelectedRolls.length} Selected)</p>
+                              <p className="text-[10px] text-zinc-400">Click candidates below to toggle them into the shortlist broadcast list</p>
+                            </div>
+                            {broadcastSelectedRolls.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setBroadcastSelectedRolls([])}
+                                className="text-[10px] text-red-600 font-bold hover:underline"
+                              >
+                                Clear Selection
+                              </button>
+                            )}
+                          </div>
+
+                          <input
+                            type="text"
+                            placeholder="Filter candidates by name, roll, or email..."
+                            value={studentSearchForBroadcast}
+                            onChange={(e) => setStudentSearchForBroadcast(e.target.value)}
+                            className="w-full bg-white border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-800"
+                          />
+
+                          <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
+                            {allRegistrations
+                              .filter((r) => {
+                                if (!studentSearchForBroadcast.trim()) return true;
+                                const q = studentSearchForBroadcast.toLowerCase();
+                                const name = (r.personal?.fullName || "").toLowerCase();
+                                const roll = (r.academic?.rollNumber || "").toLowerCase();
+                                const email = (r.personal?.email || r.studentId?.email || "").toLowerCase();
+                                return name.includes(q) || roll.includes(q) || email.includes(q);
+                              })
+                              .map((reg) => {
+                                const id = reg.studentId?._id || reg.studentId || reg.personal?.email;
+                                const isSelected = broadcastSelectedRolls.includes(id);
+
+                                return (
+                                  <div
+                                    key={reg._id}
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setBroadcastSelectedRolls(broadcastSelectedRolls.filter((s) => s !== id));
+                                      } else {
+                                        setBroadcastSelectedRolls([...broadcastSelectedRolls, id]);
+                                      }
+                                    }}
+                                    className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                                      isSelected
+                                        ? "bg-emerald-50 border-emerald-300 text-emerald-900 font-bold"
+                                        : "bg-white border-zinc-200 hover:border-zinc-300 text-zinc-700"
+                                    }`}
+                                  >
+                                    <div className="text-xs">
+                                      <span>{reg.personal?.fullName || "Student"}</span>
+                                      <span className="text-[10px] text-zinc-400 font-mono ml-2">({reg.academic?.rollNumber || "No Roll"})</span>
+                                      <span className="text-[10px] text-zinc-400 ml-2">{reg.academic?.branch}</span>
+                                    </div>
+                                    <span className="text-xs">{isSelected ? "✔ Selected" : "+ Add"}</span>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Message Box */}
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-700 mb-1">Announcement Message *</label>
+                      <textarea
+                        rows={5}
+                        required
+                        placeholder={
+                          broadcastType === "shortlist"
+                            ? "Congratulations to the following candidates shortlisted for Round 1 Technical Interview tomorrow at 10:00 AM in Lab 3:\n- [Candidate Names/Rolls]\nPlease report in formal attire with 2 copies of your updated resume and college ID."
+                            : "Write the details of the announcement here..."
+                        }
+                        value={broadcastMsg}
+                        onChange={(e) => setBroadcastMsg(e.target.value)}
+                        className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 text-xs text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-sans leading-relaxed"
+                      />
+                    </div>
+
+                    {/* Submit Button */}
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="submit"
+                        disabled={isSubmittingBroadcast}
+                        className="w-full sm:w-auto px-8 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2"
+                      >
+                        {isSubmittingBroadcast ? "Dispatching Broadcast..." : "🚀 Dispatch Announcement to Students"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Sub-tab 2: SENT BROADCASTS HISTORY */}
+              {broadcastSubTab === "history" && (
+                <div className="bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm space-y-4">
+                  <div className="flex justify-between items-center pb-2 border-b border-zinc-150">
+                    <div>
+                      <h5 className="text-base font-black text-emerald-800">Sent Broadcasts & Announcements Log</h5>
+                      <p className="text-xs text-zinc-400">Chronological history of notices dispatched by faculty</p>
+                    </div>
+                    <button
+                      onClick={fetchBroadcasts}
+                      className="text-xs font-bold text-emerald-700 hover:underline"
+                    >
+                      🔄 Refresh Log
+                    </button>
+                  </div>
+
+                  {broadcastsList.length === 0 ? (
+                    <div className="text-center py-16 border border-dashed border-zinc-200 rounded-2xl bg-zinc-50 space-y-2">
+                      <span className="text-3xl block">📨</span>
+                      <p className="text-sm font-bold text-zinc-600">No broadcasts dispatched yet</p>
+                      <p className="text-xs text-zinc-400">
+                        Use the "Conduct Announcement" tab to send your first shortlist notice or reminder.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {broadcastsList.map((b) => (
+                        <div key={b._id} className="p-5 rounded-2xl border border-zinc-200 bg-zinc-50/50 space-y-3">
+                          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded ${
+                                b.broadcastType === "shortlist"
+                                  ? "bg-amber-100 text-amber-900 border border-amber-300"
+                                  : b.broadcastType === "reminder"
+                                  ? "bg-indigo-100 text-indigo-900"
+                                  : "bg-emerald-100 text-emerald-800"
+                              }`}>
+                                {b.broadcastType === "shortlist" ? "🎯 Shortlist" : b.broadcastType === "reminder" ? "⏰ Reminder" : "📢 Notice"}
+                              </span>
+                              <h6 className="font-extrabold text-sm text-zinc-900">{b.title}</h6>
+                              {b.jobTitle && (
+                                <span className="text-[11px] text-zinc-500 font-semibold bg-white border border-zinc-200 px-2 py-0.5 rounded-md">
+                                  {b.jobTitle}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-zinc-400 font-medium">
+                              {new Date(b.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+
+                          <div className="bg-white border border-zinc-150 rounded-xl p-3.5 text-xs text-zinc-700 whitespace-pre-wrap leading-relaxed font-sans">
+                            {b.message}
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between text-[11px] text-zinc-500 gap-2 pt-1 border-t border-zinc-100">
+                            <div>
+                              <strong>Target:</strong> {b.targetType === "all_registered" ? "All Registered Students" : b.targetType === "drive_candidates" ? "Drive Candidates" : "Selected Students"} ({b.recipientCount} recipient(s))
+                            </div>
+                            {b.recipientsSummary && b.recipientsSummary.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {b.recipientsSummary.map((s: string, idx: number) => (
+                                  <span key={idx} className="bg-zinc-100 text-zinc-600 px-1.5 py-0.5 rounded text-[10px] font-mono">
+                                    {s}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sub-tab 3: LIVE STUDENT ACTIVITY FEED */}
+              {broadcastSubTab === "activity" && (
+                <div className="bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm space-y-4">
+                  <div className="flex justify-between items-center pb-2 border-b border-zinc-150">
+                    <div>
+                      <h5 className="text-base font-black text-emerald-800">Live Student Placement Activity Stream</h5>
+                      <p className="text-xs text-zinc-400">Real-time audit log of student registrations, profile updates, and drive applications</p>
+                    </div>
+                    <button
+                      onClick={fetchActivityFeed}
+                      className="text-xs font-bold text-emerald-700 hover:underline"
+                    >
+                      🔄 Refresh Stream
+                    </button>
+                  </div>
+
+                  {activityFeed.length === 0 ? (
+                    <div className="text-center py-16 border border-dashed border-zinc-200 rounded-2xl bg-zinc-50 space-y-2">
+                      <span className="text-3xl block">⚡</span>
+                      <p className="text-sm font-bold text-zinc-600">No student activity logged yet</p>
+                      <p className="text-xs text-zinc-400">
+                        When students lock placement profiles, update resumes/CGPA, or apply to drives, activities will stream here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {activityFeed.map((act) => {
+                        const icon =
+                          act.type === "profile_locked" ? "🔒" :
+                          act.type === "job_applied" ? "📄" :
+                          act.type === "profile_updated" ? "🔄" : "📢";
+
+                        const badgeColor =
+                          act.type === "profile_locked" ? "bg-emerald-100 text-emerald-800" :
+                          act.type === "job_applied" ? "bg-blue-100 text-blue-800" :
+                          act.type === "profile_updated" ? "bg-purple-100 text-purple-800" :
+                          "bg-amber-100 text-amber-800";
+
+                        return (
+                          <div key={act._id} className="p-4 rounded-2xl border border-zinc-150 bg-zinc-50/60 flex items-start gap-3.5 hover:border-zinc-250 transition-all">
+                            <span className="text-xl p-2 bg-white rounded-xl border border-zinc-200 shadow-2xs shrink-0">
+                              {icon}
+                            </span>
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded ${badgeColor}`}>
+                                    {act.type.replace("_", " ")}
+                                  </span>
+                                  <span className="font-extrabold text-xs text-zinc-900">{act.actorName}</span>
+                                  {act.rollNumber && (
+                                    <span className="text-[10px] font-mono text-zinc-400">({act.rollNumber})</span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-zinc-400 font-medium">
+                                  {new Date(act.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                              <p className="text-xs text-zinc-700 font-medium leading-relaxed">
+                                {act.message}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        )}
+
+        {/* BROADCAST ALERT MODAL FOR FACULTY / ADMIN */}
+        {broadcastModalJob && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-emerald-100 space-y-4">
+              <div className="flex justify-between items-start border-b border-zinc-100 pb-3">
+                <div>
+                  <h4 className="text-base font-black text-emerald-800">Broadcast Alert to Eligible Candidates</h4>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Drive: <strong>{broadcastModalJob.companyName}</strong> ({broadcastModalJob.role})
+                  </p>
+                </div>
+                <button
+                  onClick={() => setBroadcastModalJob(null)}
+                  className="text-zinc-400 hover:text-zinc-700 font-black text-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-zinc-700">Alert Message *</label>
+                <textarea
+                  rows={4}
+                  required
+                  placeholder="e.g. PPT scheduled for tomorrow at 10 AM in Auditorium 2. Bring 2 hard copies of your resume."
+                  value={broadcastMessage}
+                  onChange={(e) => setBroadcastMessage(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                />
+                <p className="text-[10px] text-zinc-400">
+                  This notification will be immediately dispatched to every student matching the eligibility criteria for this drive.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setBroadcastModalJob(null)}
+                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={broadcastSending || !broadcastMessage.trim()}
+                  onClick={handleSendBroadcast}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-sm"
+                >
+                  {broadcastSending ? "Dispatching..." : "Send Broadcast Alert 📢"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* EDIT PLACEMENT DRIVE MODAL FOR FACULTY / ADMIN */}
+        {editingJob && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-emerald-100 space-y-5">
+              <div className="flex justify-between items-start border-b border-zinc-100 pb-3">
+                <div>
+                  <h4 className="text-base font-black text-emerald-800">Edit Placement Drive</h4>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Modifying rules will automatically re-evaluate all students and dispatch alerts to newly eligible candidates.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setEditingJob(null)}
+                  className="text-zinc-400 hover:text-zinc-700 font-black text-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateJob} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Company Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editCompanyName}
+                      onChange={(e) => setEditCompanyName(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Role / Designation *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editRole}
+                      onChange={(e) => setEditRole(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Type *</label>
+                    <select
+                      value={editType}
+                      onChange={(e) => setEditType(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs"
+                    >
+                      <option value="full-time">Full-Time</option>
+                      <option value="internship">Internship</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Application Deadline *</label>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={editDeadline}
+                      onChange={(e) => setEditDeadline(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-600 mb-1">Drive Description / Details *</label>
+                  <textarea
+                    rows={4}
+                    required
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                </div>
+
+                {/* Eligibility Rules Builder */}
+                <div className="bg-emerald-50/40 border border-emerald-100 rounded-2xl p-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h6 className="text-xs font-black text-emerald-800 uppercase tracking-wider">Eligibility Criteria Rules</h6>
+                      <p className="text-[10px] text-zinc-400">Tip: Use &gt;= for CGPA and percentage so higher-scoring students qualify!</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditRules([...editRules, { field: "cgpa", operator: ">=", value: "" }])}
+                      className="text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded-lg"
+                    >
+                      + Add Rule
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {editRules.map((rule, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <select
+                          value={rule.field}
+                          onChange={(e) => {
+                            const newR = [...editRules];
+                            newR[idx].field = e.target.value;
+                            setEditRules(newR);
+                          }}
+                          className="bg-white border border-zinc-200 rounded-lg p-1.5 text-xs w-32 font-medium"
+                        >
+                          <option value="cgpa">CGPA</option>
+                          <option value="backlogCount">Backlogs</option>
+                          <option value="tenthPercentage">10th %</option>
+                          <option value="twelfthPercentage">12th %</option>
+                          <option value="twelfthToGraduationGap">12-Grad Gap</option>
+                          <option value="overallEducationGap">Overall Gap</option>
+                          <option value="branch">Branch</option>
+                        </select>
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 text-xs font-black text-emerald-800 select-none flex items-center justify-center min-w-[38px]">
+                          &gt;=
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          value={rule.value}
+                          placeholder="Value (e.g. 7.0, 0, 60)"
+                          onChange={(e) => {
+                            const newR = [...editRules];
+                            newR[idx].value = e.target.value;
+                            setEditRules(newR);
+                          }}
+                          className="bg-white border border-zinc-200 rounded-lg p-1.5 text-xs flex-1"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setEditRules(editRules.filter((_, i) => i !== idx))}
+                          className="text-red-500 font-extrabold hover:text-red-800 px-2 text-sm"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {editRules.length === 0 && (
+                      <p className="text-xs text-zinc-400 italic">No rules specified. Every student will be considered eligible.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingJob(null)}
+                    className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-sm"
+                  >
+                    {loading ? "Updating..." : "Save & Re-Match Candidates 💾"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
       </div>
