@@ -42,14 +42,23 @@ exports.register = async (req, res) => {
       if (existingStudent) {
         return res.status(400).json({ success: false, message: "Student with this Enrollment Number already exists" });
       }
-    } else if (role === "faculty") {
-      if (!name || !collegeId || !post || !department) {
-        return res.status(400).json({ success: false, message: "Full Name, College ID, Post, and Department are required for faculty" });
+    } else if (role === "faculty" || role === "placement_head") {
+      const finalCollegeId = collegeId || (role === "placement_head" ? `PH-${Date.now().toString().slice(-4)}` : "");
+      const finalPost = post || (role === "placement_head" ? "Head - Training & Placements" : "");
+      const finalDept = department || (role === "placement_head" ? "Training & Placement Cell" : "");
+
+      if (!name || !finalCollegeId || !finalPost || !finalDept) {
+        return res.status(400).json({ 
+          success: false, 
+          message: role === "placement_head" 
+            ? "Full Name and Placement Officer ID are required" 
+            : "Full Name, College ID, Post, and Department are required for faculty" 
+        });
       }
       // Check if college ID already exists
-      const existingFaculty = await FacultyProfile.findOne({ collegeId });
+      const existingFaculty = await FacultyProfile.findOne({ collegeId: finalCollegeId });
       if (existingFaculty) {
-        return res.status(400).json({ success: false, message: "Faculty with this College ID already exists" });
+        return res.status(400).json({ success: false, message: "Profile with this College / Officer ID already exists" });
       }
     } else if (role === "management") {
       const finalEmpId = employeeId || collegeId;
@@ -62,8 +71,13 @@ exports.register = async (req, res) => {
       }
     }
     
+    let finalRole = role;
+    if (department?.toLowerCase().includes("placement") || post?.toLowerCase().includes("placement") || role === "placement_head") {
+      finalRole = "placement_head";
+    }
+    
     // Create new user
-    const user = new User({ email, password, role });
+    const user = new User({ email, password, role: finalRole });
     await user.save();
     
     // Create profile
@@ -80,13 +94,14 @@ exports.register = async (req, res) => {
         semester: parseInt(req.body.semester) || 1
       });
       await studentProfile.save();
-    } else if (role === "faculty") {
+    } else if (role === "faculty" || role === "placement_head" || finalRole === "placement_head") {
+      const finalCollegeId = collegeId || `PH-${Date.now().toString().slice(-4)}`;
       const facultyProfile = new FacultyProfile({
         user: user._id,
         name,
-        collegeId,
-        post,
-        department
+        collegeId: finalCollegeId,
+        post: post || (finalRole === "placement_head" ? "Head - Training & Placements" : "Professor"),
+        department: department || (finalRole === "placement_head" ? "Training & Placement Cell" : "General")
       });
       await facultyProfile.save();
     } else if (role === "management") {
@@ -166,7 +181,7 @@ exports.getMe = async (req, res) => {
     let profile = null;
     if (user.role === "student") {
       profile = await StudentProfile.findOne({ user: user._id });
-    } else if (user.role === "faculty") {
+    } else if (user.role === "faculty" || user.role === "placement_head") {
       profile = await FacultyProfile.findOne({ user: user._id });
     } else if (user.role === "management") {
       profile = await ManagementProfile.findOne({ user: user._id });

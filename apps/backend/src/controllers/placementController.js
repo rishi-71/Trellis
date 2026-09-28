@@ -4,6 +4,10 @@ const PlacementRegistration = require("../models/PlacementRegistration");
 const JobPosting = require("../models/JobPosting");
 const EligibilityMatchResult = require("../models/EligibilityMatchResult");
 const AdminReport = require("../models/AdminReport");
+const Notification = require("../models/Notification");
+const PlacementBroadcast = require("../models/PlacementBroadcast");
+const PlacementActivity = require("../models/PlacementActivity");
+const { dispatchNotification } = require("./notificationController");
 const pdfkit = require("pdfkit");
 const cloudinary = require("cloudinary").v2;
 const fs = require("fs");
@@ -120,8 +124,8 @@ exports.submitRegistration = async (req, res) => {
       if (!identity?.photoUrl) {
         return res.status(400).json({ success: false, message: "Identity photo upload is required to submit." });
       }
-      if (!documents?.resumeUrl || !documents?.tenthMarksheetUrl || !documents?.twelfthMarksheetUrl) {
-        return res.status(400).json({ success: false, message: "Resume, 10th marksheet, and 12th marksheet uploads are required to submit." });
+      if (!documents?.resumeUrl) {
+        return res.status(400).json({ success: false, message: "Resume upload is required to submit." });
       }
 
       // Detailed Section validations
@@ -175,6 +179,32 @@ exports.submitRegistration = async (req, res) => {
       await registration.save();
     }
 
+    if (!isDraft) {
+      try {
+        const activeJobs = await JobPosting.find({
+          $or: [
+            { applicationDeadline: { $gte: new Date() } },
+            { applicationDeadline: null }
+          ]
+        });
+        for (const j of activeJobs) {
+          await runMatchingEngine(j._id);
+        }
+
+        // Log student activity for faculty feed
+        await PlacementActivity.create({
+          type: "profile_locked",
+          actorName: registration.personal?.fullName || "Student",
+          actorEmail: registration.personal?.email || userObj?.email || "",
+          rollNumber: registration.academic?.rollNumber || "",
+          branch: registration.academic?.branch || "",
+          message: `${registration.personal?.fullName || "Student"} (${registration.academic?.rollNumber || "N/A"}) completed & locked their placement profile.`
+        });
+      } catch (matchErr) {
+        console.error("Auto match / activity log on lock failed:", matchErr);
+      }
+    }
+
     res.json({ 
       success: true, 
       message: isDraft ? "Registration details saved as draft." : "Placement registration submitted and locked successfully!", 
@@ -195,6 +225,18 @@ exports.getRegistration = async (req, res) => {
     }
     const registration = await PlacementRegistration.findOne({ studentId }).populate("studentId", "email");
     res.json({ success: true, registration });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// B2. LIST ALL REGISTERED CANDIDATES FOR FACULTY / ADMIN / PLACEMENT HEAD
+exports.listAllRegistrations = async (req, res) => {
+  try {
+    const registrations = await PlacementRegistration.find({})
+      .populate("studentId", "name email")
+      .sort({ createdAt: -1 });
+    res.json({ success: true, registrations });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -259,9 +301,93 @@ exports.adminEditRegistration = async (req, res) => {
 
       registration.editLog.push(...editLogEntries);
       await registration.save();
+
+      // Notify student about administrative changes to profile
+      await dispatchNotification({
+        recipientRole: "student",
+        recipientId: registration.studentId,
+        source: req.user?.role === "faculty" ? "faculty" : "system",
+        sentBy: req.user?.id || null,
+        type: "eligibility_alert",
+        message: `Your placement profile was updated by the Placement Cell / Admin (${editLogEntries.length} field(s) revised).`
+      });
     }
 
     res.json({ success: true, message: "Registration updated by admin and logged successfully.", registration });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// C2. STUDENT UPDATE: ONLY RESUME AND SEMESTER CGPA CAN BE UPDATED BY STUDENT
+exports.updateStudentResumeAndCgpa = async (req, res) => {
+  try {
+    let studentId = req.params.studentId || req.user.id;
+    if (studentId.includes("@")) {
+      const userObj = await User.findOne({ email: studentId });
+      if (userObj) studentId = userObj._id;
+    }
+
+    const registration = await PlacementRegistration.findOne({ studentId });
+    if (!registration) {
+      return res.status(404).json({ success: false, message: "Placement registration record not found." });
+    }
+
+    const { semesterSgpa, resumeUrl } = req.body;
+
+    // 1. Update resume if provided
+    if (resumeUrl && typeof resumeUrl === "string") {
+      if (!registration.documents) registration.documents = {};
+      registration.documents.resumeUrl = resumeUrl;
+    }
+
+    // 2. Update semesterSgpa and recalculate CGPA if provided
+    if (Array.isArray(semesterSgpa) && semesterSgpa.length > 0) {
+      if (!registration.academic) registration.academic = {};
+      registration.academic.semesterSgpa = semesterSgpa.map((item) => ({
+        semester: Number(item.semester),
+        sgpa: Number(item.sgpa)
+      }));
+
+      // Automatically recalculate cumulative CGPA
+      registration.academic.cgpa = calculateCgpa(
+        registration.academic.semesterSgpa,
+        !!registration.isRetryAttempt
+      );
+    }
+
+    await registration.save();
+
+    // Re-run matching engine for active drives so newly eligible drives match
+    try {
+      const activeJobs = await JobPosting.find({
+        $or: [
+          { applicationDeadline: { $gte: new Date() } },
+          { applicationDeadline: null }
+        ]
+      });
+      for (const j of activeJobs) {
+        await runMatchingEngine(j._id);
+      }
+
+      // Log student profile update activity
+      await PlacementActivity.create({
+        type: "profile_updated",
+        actorName: registration.personal?.fullName || "Student",
+        actorEmail: registration.personal?.email || "",
+        rollNumber: registration.academic?.rollNumber || "",
+        branch: registration.academic?.branch || "",
+        message: `${registration.personal?.fullName || "Student"} updated Resume & Semester CGPA (Current CGPA: ${registration.academic?.cgpa?.toFixed(2)}).`
+      });
+    } catch (matchErr) {
+      console.error("Auto match on student profile update failed:", matchErr);
+    }
+
+    res.json({
+      success: true,
+      message: "Resume & Semester CGPA updated successfully!",
+      registration
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -283,9 +409,54 @@ exports.createJobPosting = async (req, res) => {
     await job.save();
 
     // Trigger auto eligibility matching automatically on creation for every student with locked registration
-    await runMatchingEngine(job._id);
+    await runMatchingEngine(job._id, req.user?.id, req.user?.role);
 
     res.json({ success: true, message: "Job opportunity created and auto-matching completed.", job });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// D2. UPDATE JOB OPPORTUNITY (Faculty / Placement Head)
+exports.updateJobPosting = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { companyName, role, type, description, eligibilityRules, applicationDeadline } = req.body;
+    
+    const job = await JobPosting.findById(id);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job opportunity not found." });
+    }
+
+    if (companyName) job.companyName = companyName;
+    if (role) job.role = role;
+    if (type) job.type = type;
+    if (description !== undefined) job.description = description;
+    if (eligibilityRules) job.eligibilityRules = eligibilityRules;
+    if (applicationDeadline) job.applicationDeadline = applicationDeadline;
+
+    await job.save();
+
+    // Re-run matching engine automatically so new/updated rules immediately re-evaluate students and send notifications
+    await runMatchingEngine(job._id, req.user?.id, req.user?.role);
+
+    res.json({ success: true, message: "Job opportunity updated and eligibility re-matched successfully!", job });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// D3. DELETE JOB OPPORTUNITY
+exports.deleteJobPosting = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const job = await JobPosting.findByIdAndDelete(id);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job opportunity not found." });
+    }
+    await EligibilityMatchResult.deleteMany({ jobPostingId: id });
+    await Notification.deleteMany({ jobPostingId: id });
+    res.json({ success: true, message: "Job posting deleted successfully." });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -366,6 +537,34 @@ exports.submitStudentDecision = async (req, res) => {
     match.decidedAt = new Date();
     await match.save();
 
+    if (decision === "applied") {
+      await dispatchNotification({
+        recipientRole: "student",
+        recipientId: studentId,
+        source: "system",
+        type: "application_status",
+        jobPostingId: job._id,
+        message: `Application Confirmed: You have successfully applied for ${job.companyName} (${job.role}). Your profile & resume are submitted to the placement cell.`
+      });
+
+      try {
+        const studentUser = await User.findById(studentId);
+        const studentReg = await PlacementRegistration.findOne({ studentId });
+        await PlacementActivity.create({
+          type: "job_applied",
+          actorName: studentReg?.personal?.fullName || studentUser?.name || "Student",
+          actorEmail: studentUser?.email || "",
+          rollNumber: studentReg?.academic?.rollNumber || "",
+          branch: studentReg?.academic?.branch || "",
+          jobPostingId: job._id,
+          companyName: job.companyName,
+          message: `${studentReg?.personal?.fullName || studentUser?.name || "Candidate"} applied for ${job.companyName} (${job.role}).`
+        });
+      } catch (actErr) {
+        console.error("Activity logging on apply failed:", actErr);
+      }
+    }
+
     res.json({ success: true, message: `Successfully saved decision: ${decision}`, match });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -406,12 +605,6 @@ exports.generatePostDeadlineReport = async (req, res) => {
     const job = await JobPosting.findById(id);
     if (!job) return res.status(404).json({ success: false, message: "Job opportunity not found" });
 
-    // Prevent duplicate report generation
-    const reportExists = await AdminReport.findOne({ jobPostingId: id });
-    if (reportExists) {
-      return res.json({ success: true, message: "Report already generated.", report: reportExists });
-    }
-
     // Fetch applied students
     const matches = await EligibilityMatchResult.find({ 
       jobPostingId: id, 
@@ -432,20 +625,28 @@ exports.generatePostDeadlineReport = async (req, res) => {
       }
     }
 
-    // Generate PDF buffer
+    // Generate fresh PDF buffer with updated tabular layout
     const pdfBuffer = await generatePdfReportBuffer(job, studentRegistrations);
 
     // Upload to Cloudinary or fallback to local storage
     const secureUrl = await uploadPdfToCloudinary(pdfBuffer, `report_${job._id}`);
 
-    // Save AdminReport Document
-    const report = new AdminReport({
-      jobPostingId: id,
-      pdfUrl: secureUrl,
-      studentIds,
-      generatedAt: new Date()
-    });
-    await report.save();
+    // Save or update AdminReport Document
+    let report = await AdminReport.findOne({ jobPostingId: id });
+    if (report) {
+      report.pdfUrl = secureUrl;
+      report.studentIds = studentIds;
+      report.generatedAt = new Date();
+      await report.save();
+    } else {
+      report = new AdminReport({
+        jobPostingId: id,
+        pdfUrl: secureUrl,
+        studentIds,
+        generatedAt: new Date()
+      });
+      await report.save();
+    }
 
     res.json({ success: true, message: "Post-deadline PDF report compiled successfully.", report });
   } catch (err) {
@@ -453,65 +654,167 @@ exports.generatePostDeadlineReport = async (req, res) => {
   }
 };
 
-// Helper: Compile PDF using pdfkit in-memory buffer
+// Helper: Compile PDF with proper table grid, rows, and columns
 function generatePdfReportBuffer(job, studentRegistrations) {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new pdfkit({ margin: 40 });
+      const doc = new pdfkit({ margin: 40, size: "A4", autoFirstPage: true });
       const chunks = [];
       doc.on("data", (chunk) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", (err) => reject(err));
 
-      // PDF Page Header
-      doc.fontSize(22).fillColor("#18181b").text("IPS ACADEMY, INDORE", { align: "center" });
-      doc.fontSize(11).fillColor("#0f766e").text("PLACEMENT CELL REPORT CELL", { align: "center" });
-      doc.moveDown(0.5);
-      
-      doc.strokeColor("#e4e4e7").lineWidth(1).moveTo(40, doc.y).lineTo(570, doc.y).stroke();
-      doc.moveDown(1);
+      const pageWidth = 595.28;
+      const pageHeight = 841.89;
+      const leftMargin = 40;
+      const contentWidth = 515;
 
-      // Job Details Card
-      doc.fontSize(12).fillColor("#27272a").text(`Company Name: ${job.companyName}`);
-      doc.fontSize(10).fillColor("#52525b").text(`Role/Designation: ${job.role}`);
-      doc.text(`Type: ${job.type === "internship" ? "Internship Opportunity" : "Full-Time Hiring"}`);
-      doc.text(`Application Deadline: ${new Date(job.applicationDeadline).toLocaleString()}`);
-      doc.text(`Total Applicants: ${studentRegistrations.length}`);
-      doc.moveDown(1.5);
+      // 1. Institution Header Banner
+      doc.rect(leftMargin, 35, contentWidth, 54).fillAndStroke("#f0fdf4", "#bbf7d0");
+      doc.fillColor("#065f46").font("Helvetica-Bold").fontSize(18).text("IPS ACADEMY, INDORE", leftMargin, 43, { width: contentWidth, align: "center" });
+      doc.fillColor("#047857").font("Helvetica-Bold").fontSize(9).text("CENTRAL TRAINING & PLACEMENT CELL", leftMargin, 64, { width: contentWidth, align: "center", characterSpacing: 1.5 });
+      doc.fillColor("#64748b").font("Helvetica").fontSize(7.5).text(`Official Drive Report • Generated: ${new Date().toLocaleString()}`, leftMargin, 76, { width: contentWidth, align: "center" });
 
-      // Table Header
-      doc.fontSize(11).fillColor("#27272a").text("LIST OF APPLIED CANDIDATES", { underline: true });
-      doc.moveDown(0.5);
+      // 2. Drive Details Summary Box
+      let currentY = 100;
+      doc.rect(leftMargin, currentY, contentWidth, 70).fillAndStroke("#f8fafc", "#e2e8f0");
 
-      doc.fontSize(8).fillColor("#71717a").text(
-        "S.No".padEnd(8) + 
-        "Roll Number".padEnd(18) + 
-        "Student Name".padEnd(25) + 
-        "Phone Number".padEnd(16) + 
-        "Branch / Dept"
+      doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(9);
+      doc.text("Company:", leftMargin + 14, currentY + 12);
+      doc.font("Helvetica").text(job.companyName, leftMargin + 72, currentY + 12);
+
+      doc.font("Helvetica-Bold").text("Role / Post:", leftMargin + 260, currentY + 12);
+      doc.font("Helvetica").text(job.role, leftMargin + 325, currentY + 12);
+
+      doc.font("Helvetica-Bold").text("Job Type:", leftMargin + 14, currentY + 30);
+      doc.font("Helvetica").text(job.type === "internship" ? "Internship" : "Full-Time Hiring", leftMargin + 72, currentY + 30);
+
+      doc.font("Helvetica-Bold").text("Deadline:", leftMargin + 260, currentY + 30);
+      doc.font("Helvetica").text(new Date(job.applicationDeadline).toLocaleString(), leftMargin + 325, currentY + 30);
+
+      doc.font("Helvetica-Bold").text("Total Applied Candidates:", leftMargin + 14, currentY + 48);
+      doc.fillColor("#047857").font("Helvetica-Bold").fontSize(10).text(`${studentRegistrations.length}`, leftMargin + 145, currentY + 47);
+
+      currentY += 86;
+
+      // 3. Section Title
+      doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(11).text("LIST OF SHORTLISTED / APPLIED APPLICANTS", leftMargin, currentY);
+      doc.fillColor("#64748b").font("Helvetica").fontSize(8).text("Candidate data verified via student locked placement profile records.", leftMargin, currentY + 14);
+
+      currentY += 28;
+
+      // 4. Tabular Grid Definition
+      const columns = [
+        { title: "S.No", width: 32, align: "center" },
+        { title: "Roll No", width: 75, align: "left" },
+        { title: "Student Name", width: 110, align: "left" },
+        { title: "Phone No", width: 80, align: "left" },
+        { title: "Email Address", width: 118, align: "left" },
+        { title: "Branch", width: 50, align: "center" },
+        { title: "CGPA", width: 50, align: "center" }
+      ];
+
+      const headerHeight = 22;
+      const rowHeight = 20;
+
+      const drawTableHeader = (yPos) => {
+        let x = leftMargin;
+        doc.lineWidth(0.5);
+        columns.forEach((col) => {
+          // Cell background
+          doc.rect(x, yPos, col.width, headerHeight).fillAndStroke("#0f766e", "#0d5f58");
+          // Header Text
+          doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(8).text(
+            col.title,
+            x + 3,
+            yPos + 6,
+            { width: col.width - 6, align: col.align }
+          );
+          x += col.width;
+        });
+      };
+
+      // Draw initial table header
+      drawTableHeader(currentY);
+      currentY += headerHeight;
+
+      if (studentRegistrations.length === 0) {
+        doc.rect(leftMargin, currentY, contentWidth, 32).fillAndStroke("#ffffff", "#e2e8f0");
+        doc.fillColor("#64748b").font("Helvetica-Oblique").fontSize(9).text(
+          "No candidates have applied for this placement drive yet.",
+          leftMargin,
+          currentY + 10,
+          { width: contentWidth, align: "center" }
+        );
+        currentY += 32;
+      } else {
+        studentRegistrations.forEach((student, index) => {
+          // Check for page overflow
+          if (currentY + rowHeight > pageHeight - 80) {
+            doc.addPage();
+            currentY = 40;
+            drawTableHeader(currentY);
+            currentY += headerHeight;
+          }
+
+          const reg = student.registration;
+          const roll = reg?.academic?.rollNumber || "N/A";
+          const name = reg?.personal?.fullName || "Student";
+          const phone = reg?.personal?.phone || "N/A";
+          const email = reg?.personal?.email || student.userEmail || "N/A";
+          const branch = (reg?.academic?.branch || "N/A").toUpperCase();
+          const cgpa = typeof reg?.academic?.cgpa === "number" ? reg.academic.cgpa.toFixed(2) : (reg?.academic?.cgpa || "N/A");
+
+          const rowData = [
+            (index + 1).toString(),
+            roll,
+            name,
+            phone,
+            email,
+            branch,
+            cgpa
+          ];
+
+          const isEven = index % 2 === 0;
+          const rowBg = isEven ? "#ffffff" : "#f8fafc";
+
+          let x = leftMargin;
+          doc.lineWidth(0.5);
+          rowData.forEach((val, cIdx) => {
+            const col = columns[cIdx];
+            doc.rect(x, currentY, col.width, rowHeight).fillAndStroke(rowBg, "#e2e8f0");
+            doc.fillColor("#1e293b").font("Helvetica").fontSize(7.5).text(
+              val,
+              x + 3,
+              currentY + 6,
+              { width: col.width - 6, align: col.align, ellipsis: true }
+            );
+            x += col.width;
+          });
+
+          currentY += rowHeight;
+        });
+      }
+
+      // 5. Signatures Block at Bottom
+      const sigY = Math.min(pageHeight - 90, currentY + 30);
+      if (sigY + 50 <= pageHeight - 40) {
+        doc.lineWidth(0.5).strokeColor("#cbd5e1");
+        doc.moveTo(leftMargin + 30, sigY + 30).lineTo(leftMargin + 180, sigY + 30).stroke();
+        doc.moveTo(contentWidth - 140, sigY + 30).lineTo(contentWidth + leftMargin, sigY + 30).stroke();
+
+        doc.fillColor("#475569").font("Helvetica-Bold").fontSize(8);
+        doc.text("Faculty Placement Coordinator", leftMargin + 30, sigY + 35);
+        doc.text("Head, Training & Placement Cell", contentWidth - 140, sigY + 35);
+      }
+
+      // Page footer
+      doc.fillColor("#94a3b8").font("Helvetica").fontSize(7).text(
+        "CONFIDENTIAL • Generated exclusively for IPS Academy Placement Cell recruitment records.",
+        leftMargin,
+        pageHeight - 25,
+        { width: contentWidth, align: "center" }
       );
-      doc.moveDown(0.3);
-      doc.strokeColor("#f4f4f5").lineWidth(0.5).moveTo(40, doc.y).lineTo(570, doc.y).stroke();
-      doc.moveDown(0.5);
-
-      doc.fontSize(8).fillColor("#27272a");
-      studentRegistrations.forEach((student, index) => {
-        const reg = student.registration;
-        const roll = reg?.academic?.rollNumber || "N/A";
-        const name = reg?.personal?.fullName || student.userEmail;
-        const phone = reg?.personal?.phone || "N/A";
-        const branch = reg?.academic?.branch || "N/A";
-
-        const line = 
-          `${index + 1}`.padEnd(8) + 
-          `${roll}`.padEnd(18) + 
-          `${name}`.padEnd(25) + 
-          `${phone}`.padEnd(16) + 
-          `${branch}`;
-        
-        doc.text(line);
-        doc.moveDown(0.3);
-      });
 
       doc.end();
     } catch (e) {
@@ -594,7 +897,7 @@ async function uploadBase64ResumeToCloudinary(base64Data, studentId) {
 }
 
 // Helper Matching Engine Implementation
-async function runMatchingEngine(jobPostingId) {
+async function runMatchingEngine(jobPostingId, senderId = null, senderRole = "system") {
   const job = await JobPosting.findById(jobPostingId);
   if (!job) return;
 
@@ -680,14 +983,192 @@ async function runMatchingEngine(jobPostingId) {
       },
       { upsert: true, new: true }
     );
+
+    // If student is eligible, automatically notify them
+    if (isEligible) {
+      try {
+        const existingNotif = await Notification.findOne({
+          recipientId: studentId,
+          jobPostingId: job._id,
+          type: "placement_drive"
+        });
+
+        if (!existingNotif) {
+          const deadlineStr = job.applicationDeadline ? new Date(job.applicationDeadline).toLocaleDateString() : "soon";
+          await dispatchNotification({
+            recipientRole: "student",
+            recipientId: studentId,
+            source: "system",
+            sentBy: senderId || null,
+            type: "placement_drive",
+            jobPostingId: job._id,
+            message: `New Placement Drive: You are eligible for ${job.companyName} (${job.role})! Application deadline: ${deadlineStr}. Apply with your locked profile or updated resume.`
+          });
+        }
+      } catch (notifErr) {
+        console.error("Error creating auto notification for student:", studentId, notifErr);
+      }
+    }
   }
 }
 
 exports.runMatchingEngineEndpoint = async (req, res) => {
   try {
     const { id } = req.params;
-    await runMatchingEngine(id);
+    await runMatchingEngine(id, req.user?.id, req.user?.role);
     res.json({ success: true, message: "Matching engine executed successfully." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// I. FACULTY SEND BROADCAST / SHORTLIST ANNOUNCEMENT
+exports.sendPlacementBroadcast = async (req, res) => {
+  try {
+    const {
+      title,
+      message,
+      broadcastType = "general",
+      targetType = "all_registered",
+      jobPostingId,
+      selectedStudentIds = []
+    } = req.body;
+    const senderId = req.user.id;
+    const senderEmail = req.user.email;
+
+    if (!title || !message) {
+      return res.status(400).json({ success: false, message: "Title and message content are required." });
+    }
+
+    let targetStudents = [];
+    let jobObj = null;
+    if (jobPostingId) {
+      jobObj = await JobPosting.findById(jobPostingId);
+    }
+
+    if (targetType === "all_registered") {
+      const registrations = await PlacementRegistration.find({ status: "locked" }).populate("studentId");
+      targetStudents = registrations.map((r) => ({
+        studentId: r.studentId?._id || r.studentId,
+        fullName: r.personal?.fullName || "Student",
+        rollNumber: r.academic?.rollNumber || ""
+      })).filter((s) => !!s.studentId);
+    } else if (targetType === "drive_candidates" && jobPostingId) {
+      const matches = await EligibilityMatchResult.find({ jobPostingId, isEligible: true });
+      for (const m of matches) {
+        const reg = await PlacementRegistration.findOne({ studentId: m.studentId });
+        targetStudents.push({
+          studentId: m.studentId,
+          fullName: reg?.personal?.fullName || "Candidate",
+          rollNumber: reg?.academic?.rollNumber || ""
+        });
+      }
+    } else if (targetType === "selected_students" && Array.isArray(selectedStudentIds) && selectedStudentIds.length > 0) {
+      for (const sId of selectedStudentIds) {
+        let userObjectId = sId;
+        if (typeof sId === "string" && sId.includes("@")) {
+          const u = await User.findOne({ email: sId });
+          if (u) userObjectId = u._id;
+        }
+        const reg = await PlacementRegistration.findOne({ studentId: userObjectId });
+        targetStudents.push({
+          studentId: userObjectId,
+          fullName: reg?.personal?.fullName || "Student",
+          rollNumber: reg?.academic?.rollNumber || ""
+        });
+      }
+    } else {
+      const registrations = await PlacementRegistration.find({ status: "locked" }).populate("studentId");
+      targetStudents = registrations.map((r) => ({
+        studentId: r.studentId?._id || r.studentId,
+        fullName: r.personal?.fullName || "Student",
+        rollNumber: r.academic?.rollNumber || ""
+      })).filter((s) => !!s.studentId);
+    }
+
+    // Deduplicate target students by ID
+    const uniqueMap = new Map();
+    for (const s of targetStudents) {
+      if (s.studentId) uniqueMap.set(s.studentId.toString(), s);
+    }
+    const finalRecipients = Array.from(uniqueMap.values());
+
+    const notifType = broadcastType === "shortlist" ? "shortlist_announcement" : "custom_alert";
+    const formattedMessage = `[${title.toUpperCase()}]\n${message}`;
+
+    for (const recipient of finalRecipients) {
+      await dispatchNotification({
+        recipientRole: "student",
+        recipientId: recipient.studentId,
+        source: "faculty",
+        sentBy: senderId,
+        type: notifType,
+        jobPostingId: jobPostingId || null,
+        message: formattedMessage
+      });
+    }
+
+    // Save Broadcast Record
+    const broadcastRecord = await PlacementBroadcast.create({
+      senderId,
+      senderEmail,
+      title,
+      message,
+      broadcastType,
+      targetType,
+      jobPostingId: jobPostingId || null,
+      jobTitle: jobObj ? `${jobObj.companyName} (${jobObj.role})` : "",
+      recipientCount: finalRecipients.length,
+      recipientsSummary: finalRecipients.slice(0, 15).map((r) => `${r.fullName} (${r.rollNumber || "N/A"})`)
+    });
+
+    // Save Activity Log
+    const activity = await PlacementActivity.create({
+      type: "broadcast_sent",
+      actorName: senderEmail,
+      actorEmail: senderEmail,
+      actorRole: req.user.role,
+      jobPostingId: jobPostingId || null,
+      companyName: jobObj ? jobObj.companyName : "",
+      message: `Faculty broadcast: "${title}" (${broadcastType.toUpperCase()}) dispatched to ${finalRecipients.length} student(s).`
+    });
+
+    if (global.io) {
+      global.io.emit("placement:activity", activity);
+    }
+
+    res.json({
+      success: true,
+      message: `Broadcast successfully dispatched to ${finalRecipients.length} student(s)!`,
+      broadcast: broadcastRecord
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// J. GET ALL FACULTY BROADCASTS
+exports.getPlacementBroadcasts = async (req, res) => {
+  try {
+    const broadcasts = await PlacementBroadcast.find({})
+      .populate("senderId", "name email")
+      .populate("jobPostingId", "companyName role")
+      .sort({ createdAt: -1 })
+      .limit(100);
+    res.json({ success: true, broadcasts });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// K. GET REAL-TIME PLACEMENT ACTIVITY FEED
+exports.getPlacementActivityFeed = async (req, res) => {
+  try {
+    const activities = await PlacementActivity.find({})
+      .populate("jobPostingId", "companyName role")
+      .sort({ createdAt: -1 })
+      .limit(60);
+    res.json({ success: true, activities });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

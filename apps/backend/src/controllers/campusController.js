@@ -709,8 +709,9 @@ const uploadBase64ImageToCloudinary = async (base64Data, folder, publicId) => {
 
   if (hasCloudinary) {
     try {
+      const isPdf = ext === "pdf";
       const result = await cloudinary.uploader.upload(base64Data, {
-        resource_type: "image",
+        resource_type: isPdf ? "auto" : "image",
         folder: folder,
         public_id: `${publicId}_${Date.now()}`
       });
@@ -724,7 +725,7 @@ const uploadBase64ImageToCloudinary = async (base64Data, folder, publicId) => {
   try {
     const fs = require("fs");
     const path = require("path");
-    const base64Content = base64Data.replace(/^data:image\/[a-zA-Z+]+;base64,/, "");
+    const base64Content = base64Data.replace(/^data:[^;]+;base64,/, "");
     const buffer = Buffer.from(base64Content, "base64");
 
     const dir = path.join(process.cwd(), "public/uploads");
@@ -739,7 +740,7 @@ const uploadBase64ImageToCloudinary = async (base64Data, folder, publicId) => {
     return `http://localhost:5000/uploads/${fileName}`;
   } catch (err) {
     console.error("Local file uploader fallback failed:", err);
-    throw new Error("Image storage failed.");
+    throw new Error("File storage failed.");
   }
 };
 
