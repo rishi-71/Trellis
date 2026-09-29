@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const StudentProfile = require("../models/StudentProfile");
 const FacultyProfile = require("../models/FacultyProfile");
+const ManagementProfile = require("../models/ManagementProfile");
 const jwt = require("jsonwebtoken");
 
 const generateToken = (user) => {
@@ -13,7 +14,12 @@ const generateToken = (user) => {
 
 exports.register = async (req, res) => {
   try {
-    const { email, password, role, name, rollNumber, enrollmentNumber, branch, collegeId, post, year, semester, department } = req.body;
+    const { 
+      email, password, role, name, 
+      rollNumber, enrollmentNumber, branch, 
+      collegeId, post, year, semester, 
+      department, employeeId, phone, officeLocation 
+    } = req.body;
     
     if (!email || !password || !role) {
       return res.status(400).json({ success: false, message: "Email, password, and role are required" });
@@ -54,6 +60,15 @@ exports.register = async (req, res) => {
       if (existingFaculty) {
         return res.status(400).json({ success: false, message: "Profile with this College / Officer ID already exists" });
       }
+    } else if (role === "management") {
+      const finalEmpId = employeeId || collegeId;
+      if (!name || !finalEmpId) {
+        return res.status(400).json({ success: false, message: "Full Name and Employee ID are required for management staff" });
+      }
+      const existingMgmt = await ManagementProfile.findOne({ employeeId: finalEmpId });
+      if (existingMgmt) {
+        return res.status(400).json({ success: false, message: "Management staff with this Employee ID already exists" });
+      }
     }
     
     let finalRole = role;
@@ -68,13 +83,18 @@ exports.register = async (req, res) => {
     // Create profile
     if (role === "student") {
       const finalRoll = rollNumber || enrollmentNumber;
-      const graduationYear = req.body.graduationYear || (new Date().getFullYear() + 3);
+      const parsedYoa = req.body.yoa ? parseInt(req.body.yoa) : (req.body.admissionYear ? parseInt(req.body.admissionYear) : undefined);
+      const parsedYop = req.body.yop ? parseInt(req.body.yop) : (req.body.graduationYear ? parseInt(req.body.graduationYear) : (parsedYoa ? parsedYoa + 4 : new Date().getFullYear() + 3));
+      const graduationYear = parsedYop;
       const studentProfile = new StudentProfile({
         user: user._id,
         name,
         rollNumber: finalRoll,
         branch,
         graduationYear,
+        admissionYear: parsedYoa,
+        yoa: parsedYoa,
+        yop: parsedYop,
         year: parseInt(req.body.year) || 1,
         semester: parseInt(req.body.semester) || 1
       });
@@ -89,6 +109,17 @@ exports.register = async (req, res) => {
         department: department || (finalRole === "placement_head" ? "Training & Placement Cell" : "General")
       });
       await facultyProfile.save();
+    } else if (role === "management") {
+      const finalEmpId = employeeId || collegeId;
+      const managementProfile = new ManagementProfile({
+        user: user._id,
+        name,
+        employeeId: finalEmpId,
+        department: department || "Campus Facilities & Operations",
+        phone: phone || "",
+        officeLocation: officeLocation || "Central Admin Office"
+      });
+      await managementProfile.save();
     }
     
     const token = generateToken(user);
@@ -157,6 +188,8 @@ exports.getMe = async (req, res) => {
       profile = await StudentProfile.findOne({ user: user._id });
     } else if (user.role === "faculty" || user.role === "placement_head") {
       profile = await FacultyProfile.findOne({ user: user._id });
+    } else if (user.role === "management") {
+      profile = await ManagementProfile.findOne({ user: user._id });
     }
 
     res.json({

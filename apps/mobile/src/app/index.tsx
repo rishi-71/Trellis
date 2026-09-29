@@ -114,6 +114,9 @@ export default function HomeScreen() {
           <View style={styles.list}>
             {desktopApps
               .filter((app) => {
+                if (userRole === "management") {
+                  return app.id === "lostfound" || app.id === "complaints";
+                }
                 if (userRole === "student") {
                   if (app.id === "placements") {
                     const isAllowed = studentYear >= 3 || studentSemester >= 6;
@@ -213,9 +216,9 @@ export default function HomeScreen() {
                   </View>
                 );
               }
-              return <ComplaintsModule token={token} backendUrl={backendUrl} />;
+              return <ComplaintsModule token={token} backendUrl={backendUrl} userRole={userRole} />;
             })()}
-            {activeApp === 'lostfound' && <LostFoundModule token={token} backendUrl={backendUrl} />}
+            {activeApp === 'lostfound' && <LostFoundModule token={token} backendUrl={backendUrl} userRole={userRole} />}
             {activeApp === 'sos' && <SOSModule token={token} backendUrl={backendUrl} />}
           </ScrollView>
         </View>

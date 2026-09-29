@@ -19,7 +19,7 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
 
-  const [registerRole, setRegisterRole] = useState<"student" | "faculty">("student");
+  const [registerRole, setRegisterRole] = useState<"student" | "faculty" | "management">("student");
   const [fullName, setFullName] = useState("");
   const [enrollmentNumber, setEnrollmentNumber] = useState("");
   const [branch, setBranch] = useState("");
@@ -27,7 +27,13 @@ export default function Home() {
   const [post, setPost] = useState("");
   const [year, setYear] = useState("1");
   const [semester, setSemester] = useState("1");
+  const [yoa, setYoa] = useState("2023");
+  const [yop, setYop] = useState("2027");
   const [facultyDept, setFacultyDept] = useState("Internet of Things (IoT)");
+  const [employeeId, setEmployeeId] = useState("");
+  const [mgmtDept, setMgmtDept] = useState("Campus Facilities & Operations");
+  const [mgmtPhone, setMgmtPhone] = useState("");
+  const [officeLocation, setOfficeLocation] = useState("Central Admin Office");
 
   const [studentBranch, setStudentBranch] = useState("");
   const [studentYear, setStudentYear] = useState(1);
@@ -232,6 +238,15 @@ export default function Home() {
       payload.branch = branch;
       payload.year = year;
       payload.semester = semester;
+      payload.yoa = parseInt(yoa) || undefined;
+      payload.yop = parseInt(yop) || undefined;
+      payload.admissionYear = parseInt(yoa) || undefined;
+      payload.graduationYear = parseInt(yop) || undefined;
+    } else if (selectedRole === "management") {
+      payload.employeeId = employeeId;
+      payload.department = mgmtDept;
+      payload.phone = mgmtPhone;
+      payload.officeLocation = officeLocation;
     } else {
       payload.collegeId = collegeId || (finalRole === "placement_head" ? `TPO-${Date.now().toString().slice(-4)}` : "");
       payload.post = post || (finalRole === "placement_head" ? "Placement Head" : "Professor");
@@ -273,6 +288,15 @@ export default function Home() {
       e.preventDefault();
       alert("Access Restricted: As Placement Head, your account has dedicated access exclusively to the Placement Board.");
       router.push("/placements");
+      return;
+    }
+    if (userRole === "management") {
+      if (app.path !== "/lostfound" && app.path !== "/complaints") {
+        e.preventDefault();
+        alert("Management accounts are dedicated to Lost & Found operations and Facility Complaints desks.");
+        return;
+      }
+      router.push(app.path);
       return;
     }
     const isPublic = app.path === "/finder";
@@ -528,6 +552,9 @@ export default function Home() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {desktopApps
                     .filter((app) => {
+                      if (userRole === "management") {
+                        return app.path === "/lostfound" || app.path === "/complaints";
+                      }
                       if (userRole === "student") {
                         if (app.path === "/placements") {
                           const isAllowed = studentYear >= 3 || studentSemester >= 6;
@@ -582,26 +609,55 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Security dispatch alarm widget */}
+              {/* Side Panel (SOS for students/faculty, Operations for management) */}
               <div className="lg:col-span-4 bg-white border border-emerald-100 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-zinc-950 mb-1">Security Dispatch</h4>
-                  <p className="text-xs text-zinc-400">Emergency panic trigger tools</p>
-                </div>
-                
-                <div className="bg-rose-50 border border-rose-100 p-5 rounded-2xl text-center space-y-4 my-4">
-                  <span className="text-3xl block animate-bounce">🚨</span>
-                  <h5 className="text-xs font-black text-rose-800 uppercase tracking-wider">Quick SOS Alarm</h5>
-                  <p className="text-[10px] text-rose-700 leading-relaxed">
-                    Triggering this alarm page will transmit your location coordinates to campus safety guards instantly.
-                  </p>
-                  <Link
-                    href="/sos"
-                    className="block w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow"
-                  >
-                    Go to Alarm Panel
-                  </Link>
-                </div>
+                {userRole === "management" ? (
+                  <div>
+                    <h4 className="text-sm font-bold text-zinc-950 mb-1">Management Desk</h4>
+                    <p className="text-xs text-zinc-400">Campus Facilities & Operations</p>
+                    
+                    <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl text-center space-y-4 my-4">
+                      <span className="text-3xl block">🏢</span>
+                      <h5 className="text-xs font-black text-emerald-900 uppercase tracking-wider">Facilities Control Desk</h5>
+                      <p className="text-[10px] text-emerald-800 leading-relaxed">
+                        Manage item handover & pickup schedules, and resolve facility maintenance complaints in real time.
+                      </p>
+                      <div className="space-y-2">
+                        <Link
+                          href="/lostfound"
+                          className="block w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow"
+                        >
+                          📦 Lost & Found Desk
+                        </Link>
+                        <Link
+                          href="/complaints"
+                          className="block w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow"
+                        >
+                          🔧 Complaints Desk
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <h4 className="text-sm font-bold text-zinc-950 mb-1">Security Dispatch</h4>
+                    <p className="text-xs text-zinc-400">Emergency panic trigger tools</p>
+                    
+                    <div className="bg-rose-50 border border-rose-100 p-5 rounded-2xl text-center space-y-4 my-4">
+                      <span className="text-3xl block animate-bounce">🚨</span>
+                      <h5 className="text-xs font-black text-rose-800 uppercase tracking-wider">Quick SOS Alarm</h5>
+                      <p className="text-[10px] text-rose-700 leading-relaxed">
+                        Triggering this alarm page will transmit your location coordinates to campus safety guards instantly.
+                      </p>
+                      <Link
+                        href="/sos"
+                        className="block w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow"
+                      >
+                        Go to Alarm Panel
+                      </Link>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -611,7 +667,7 @@ export default function Home() {
       {/* Auth Modal popup */}
       {isAuthModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white/95 rounded-3xl max-w-md w-full border border-emerald-100 shadow-2xl p-8 relative animate-[fadeIn_0.2s_ease-out]">
+          <div className="bg-white/95 rounded-3xl max-w-md w-full border border-emerald-100 shadow-2xl p-8 relative animate-[fadeIn_0.2s_ease-out] max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setIsAuthModalOpen(false)}
               className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-700 text-lg"
@@ -653,6 +709,15 @@ export default function Home() {
                     }`}
                   >
                     Faculty
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRegisterRole("management")}
+                    className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition ${
+                      registerRole === "management" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                    }`}
+                  >
+                    Management
                   </button>
                 </div>
               )}
@@ -724,7 +789,15 @@ export default function Home() {
                           <select
                             required
                             value={year}
-                            onChange={(e) => setYear(e.target.value)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setYear(val);
+                              const currentYear = new Date().getFullYear();
+                              const numericYear = parseInt(val) || 1;
+                              const calculatedYoa = currentYear - (numericYear - 1);
+                              setYoa(calculatedYoa.toString());
+                              setYop((calculatedYoa + 4).toString());
+                            }}
                             className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none text-zinc-800"
                           >
                             <option value="1">1st Year</option>
@@ -752,8 +825,46 @@ export default function Home() {
                           </select>
                         </div>
                       </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">YOA (Admission)</label>
+                          <input
+                            type="number"
+                            required
+                            value={yoa}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setYoa(val);
+                              if (val.length === 4) {
+                                const num = parseInt(val);
+                                if (!isNaN(num)) {
+                                  setYop((num + 4).toString());
+                                }
+                              }
+                            }}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                            placeholder="e.g. 2022"
+                            min="2000"
+                            max="2099"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">YOP (Passing)</label>
+                          <input
+                            type="number"
+                            required
+                            value={yop}
+                            onChange={(e) => setYop(e.target.value)}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                            placeholder="e.g. 2026"
+                            min="2000"
+                            max="2099"
+                          />
+                        </div>
+                      </div>
                     </>
-                  ) : (
+                  ) : registerRole === "faculty" ? (
                     <>
                       <div>
                         <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">College ID</label>
@@ -805,6 +916,53 @@ export default function Home() {
                         </select>
                       </div>
                     </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Staff / Employee ID</label>
+                        <input
+                          type="text"
+                          required
+                          value={employeeId}
+                          onChange={(e) => setEmployeeId(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="MGMT2001"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Department / Operations Office</label>
+                        <input
+                          type="text"
+                          required
+                          value={mgmtDept}
+                          onChange={(e) => setMgmtDept(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                          placeholder="Campus Facilities & Maintenance"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Phone Number</label>
+                          <input
+                            type="text"
+                            value={mgmtPhone}
+                            onChange={(e) => setMgmtPhone(e.target.value)}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                            placeholder="+91-9876543210"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Office Location</label>
+                          <input
+                            type="text"
+                            value={officeLocation}
+                            onChange={(e) => setOfficeLocation(e.target.value)}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                            placeholder="Admin Block Room 102"
+                          />
+                        </div>
+                      </div>
+                    </>
                   )}
                 </>
               )}
@@ -817,7 +975,9 @@ export default function Home() {
                   ? "Authorize Workspace"
                   : registerRole === "student"
                   ? "Register Student Account"
-                  : "Register Faculty Account"}
+                  : registerRole === "faculty"
+                  ? "Register Faculty Account"
+                  : "Register Management Account"}
               </button>
             </form>
 

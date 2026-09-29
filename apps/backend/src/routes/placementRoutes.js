@@ -16,7 +16,9 @@ router.put("/jobs/:id", verifyToken, placementController.updateJobPosting);
 router.delete("/jobs/:id", verifyToken, placementController.deleteJobPosting);
 router.get("/jobs/:id/matches", verifyToken, placementController.getJobMatches);
 router.post("/jobs/:id/decision", verifyToken, placementController.submitStudentDecision);
+router.get("/jobs/:id/report", verifyToken, placementController.generatePostDeadlineReport);
 router.post("/jobs/:id/report", verifyToken, placementController.generatePostDeadlineReport);
+router.put("/jobs/:id/attach-resume", verifyToken, placementController.attachDriveSpecificResume);
 router.post("/jobs/:id/run-matching", verifyToken, placementController.runMatchingEngineEndpoint);
 
 // Faculty Broadcasts & Student Activity Feed routes

@@ -359,7 +359,9 @@ exports.returnResource = async (req, res) => {
 // -------------------------------------------------------------
 exports.getAllLostFound = async (req, res) => {
   try {
-    const items = await LostFound.find({}).sort({ createdAt: -1 });
+    const items = await LostFound.find({})
+      .populate("reporter", "email")
+      .sort({ createdAt: -1 });
     res.json({ success: true, items });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -378,6 +380,8 @@ exports.reportLostFound = async (req, res) => {
       return res.status(400).json({ success: false, message: "Ownership proof (receipt/bill) is required for reporting lost items." });
     }
 
+    const initialStatus = type === "found" ? "awaiting_handover" : "open";
+
     const item = new LostFound({
       reporter: req.user.id,
       title,
@@ -386,7 +390,8 @@ exports.reportLostFound = async (req, res) => {
       location,
       contact: contact || contactDetails || "",
       proofUrl,
-      imageUrl
+      imageUrl,
+      status: initialStatus
     });
     await item.save();
     res.json({ success: true, item });
@@ -395,10 +400,111 @@ exports.reportLostFound = async (req, res) => {
   }
 };
 
+exports.updateLostFoundStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, pickupDate, pickupLocation, managementNotes, claimedBy } = req.body;
+    
+    const item = await LostFound.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Lost & Found item not found." });
+    }
+
+    if (status) {
+      item.status = status;
+    }
+    if (pickupDate !== undefined) item.pickupDate = pickupDate ? new Date(pickupDate) : undefined;
+    if (pickupLocation !== undefined) item.pickupLocation = pickupLocation;
+    if (managementNotes !== undefined) item.managementNotes = managementNotes;
+    
+    if (status === "ready_for_pickup") {
+      item.receivedByManagement = true;
+      item.receivedAt = item.receivedAt || new Date();
+      if (!item.pickupDate && pickupDate) item.pickupDate = new Date(pickupDate);
+      if (!item.pickupLocation && pickupLocation) item.pickupLocation = pickupLocation;
+    }
+
+    if (status === "claimed") {
+      item.claimedBy = claimedBy || req.body.claimedBy || "Verified Owner";
+      item.claimedAt = new Date();
+    }
+
+    await item.save();
+    res.json({ success: true, item, message: `Lost & Found status updated to ${item.status}` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 exports.claimLostFound = async (req, res) => {
   try {
-    const item = await LostFound.findByIdAndUpdate(req.params.id, { status: "claimed" }, { new: true });
+    const { claimedBy, managementNotes } = req.body;
+    const item = await LostFound.findByIdAndUpdate(
+      req.params.id, 
+      { 
+        status: "claimed",
+        claimedBy: claimedBy || req.user.email || "Claimed",
+        claimedAt: new Date(),
+        ...(managementNotes ? { managementNotes } : {})
+      }, 
+      { new: true }
+    );
     res.json({ success: true, item });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.updateLostFound = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, type, description, location, contact, contactDetails, proofUrl, imageUrl } = req.body;
+
+    const item = await LostFound.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Lost & Found item not found." });
+    }
+
+    const isOwner = item.reporter.toString() === req.user.id;
+    const isStaff = ['management', 'admin'].includes(req.user.role);
+    if (!isOwner && !isStaff) {
+      return res.status(403).json({ success: false, message: "Unauthorized to edit this item." });
+    }
+
+    if (title !== undefined) item.title = title;
+    if (type !== undefined) item.type = type;
+    if (description !== undefined) item.description = description;
+    if (location !== undefined) item.location = location;
+    if (contact !== undefined || contactDetails !== undefined) {
+      item.contact = contact || contactDetails;
+    }
+    if (proofUrl !== undefined) item.proofUrl = proofUrl;
+    if (imageUrl !== undefined) item.imageUrl = imageUrl;
+
+    await item.save();
+    res.json({ success: true, message: "Lost & Found item updated successfully", item });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.deleteLostFound = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const item = await LostFound.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Lost & Found item not found." });
+    }
+
+    const isOwner = item.reporter.toString() === req.user.id;
+    const isStaff = ['management', 'admin'].includes(req.user.role);
+    if (!isOwner && !isStaff) {
+      return res.status(403).json({ success: false, message: "Unauthorized to delete this item." });
+    }
+
+    await LostFound.findByIdAndDelete(id);
+    res.json({ success: true, message: "Lost & Found item deleted successfully" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -774,7 +880,16 @@ exports.updateProfile = async (req, res) => {
     if (name !== undefined) profile.name = name;
     if (rollNumber !== undefined) profile.rollNumber = rollNumber;
     if (branch !== undefined) profile.branch = branch;
-    if (graduationYear !== undefined) profile.graduationYear = graduationYear;
+    if (graduationYear !== undefined) {
+      profile.graduationYear = graduationYear;
+      profile.yop = graduationYear;
+    }
+    if (req.body.yop !== undefined) {
+      profile.yop = req.body.yop;
+      profile.graduationYear = req.body.yop;
+    }
+    if (req.body.yoa !== undefined) profile.yoa = req.body.yoa;
+    if (req.body.admissionYear !== undefined) profile.admissionYear = req.body.admissionYear;
     if (semester !== undefined) profile.semester = semester;
     if (bio !== undefined) profile.bio = bio;
     if (contact !== undefined) profile.contact = contact;
