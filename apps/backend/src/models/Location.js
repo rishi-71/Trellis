@@ -2,10 +2,10 @@ const mongoose = require("mongoose");
 
 const LocationSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
-  category: { 
-    type: String, 
-    enum: ["classroom", "lab", "washroom", "canteen", "parking", "printer", "library", "faculty-cabin", "ground", "other"], 
-    default: "other" 
+  category: {
+    type: String,
+    enum: ["classroom", "lab", "washroom", "canteen", "parking", "printer", "library", "faculty-cabin", "ground", "other"],
+    default: "other"
   },
   building: { type: String, required: true },
   floor: { type: Number, required: true, default: 0 },
