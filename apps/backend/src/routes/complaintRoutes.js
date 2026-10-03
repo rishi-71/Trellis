@@ -12,4 +12,9 @@ router.get("/", verifyToken, verifyManagementOrFacultyOrAdmin, complaintControll
 router.put("/:id/status", verifyToken, verifyManagementOrFacultyOrAdmin, complaintController.updateComplaintStatus);
 router.patch("/:id/status", verifyToken, verifyManagementOrFacultyOrAdmin, complaintController.updateComplaintStatus);
 
+// Edit & Delete endpoints (Student owner or Management / Admin)
+router.put("/:id", verifyToken, complaintController.updateComplaint);
+router.patch("/:id", verifyToken, complaintController.updateComplaint);
+router.delete("/:id", verifyToken, complaintController.deleteComplaint);
+
 module.exports = router;

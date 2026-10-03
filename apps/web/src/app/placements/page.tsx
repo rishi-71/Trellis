@@ -90,6 +90,9 @@ export default function PlacementsPage() {
   const [sgpa3, setSgpa3] = useState("");
   const [sgpa4, setSgpa4] = useState("");
   const [sgpa5, setSgpa5] = useState("");
+  const [sgpa6, setSgpa6] = useState("");
+  const [sgpa7, setSgpa7] = useState("");
+  const [sgpa8, setSgpa8] = useState("");
 
   // Backlogs
   const [backlogCount, setBacklogCount] = useState("0");
@@ -153,6 +156,14 @@ export default function PlacementsPage() {
   const [isSubmittingBroadcast, setIsSubmittingBroadcast] = useState(false);
   const [studentSearchForBroadcast, setStudentSearchForBroadcast] = useState("");
 
+  // Quick Resume Upload Modal from Notification
+  const [showQuickResumeModal, setShowQuickResumeModal] = useState(false);
+  const [resumeModalJob, setResumeModalJob] = useState<any>(null);
+  const [quickResumeFile, setQuickResumeFile] = useState<File | null>(null);
+  const [quickResumeBase64, setQuickResumeBase64] = useState<string>("");
+  const [isUploadingQuickResume, setIsUploadingQuickResume] = useState(false);
+  const [quickResumeSuccess, setQuickResumeSuccess] = useState<string | null>(null);
+
   useEffect(() => {
     const savedToken = localStorage.getItem("trellis_token");
     const savedRole = localStorage.getItem("trellis_role");
@@ -185,6 +196,9 @@ export default function PlacementsPage() {
 
       // Socket.io connection for real-time notifications
       const socket = io(BACKEND_URL);
+      if (userEmail) {
+        socket.emit("join:user", userEmail);
+      }
       socket.on("notification:new", (newNotif: any) => {
         setNotifications((prev) => [newNotif, ...prev]);
         setUnreadNotifCount((c) => c + 1);
@@ -360,6 +374,9 @@ export default function PlacementsPage() {
         setSgpa3(sgpas.find((e: any) => e.semester === 3)?.sgpa?.toString() || "");
         setSgpa4(sgpas.find((e: any) => e.semester === 4)?.sgpa?.toString() || "");
         setSgpa5(sgpas.find((e: any) => e.semester === 5)?.sgpa?.toString() || "");
+        setSgpa6(sgpas.find((e: any) => e.semester === 6)?.sgpa?.toString() || "");
+        setSgpa7(sgpas.find((e: any) => e.semester === 7)?.sgpa?.toString() || "");
+        setSgpa8(sgpas.find((e: any) => e.semester === 8)?.sgpa?.toString() || "");
         
         setBacklogCount(reg.academic?.backlogCount?.toString() || "0");
         setBacklogHistory(reg.academic?.backlogHistory || []);
@@ -606,11 +623,11 @@ export default function PlacementsPage() {
     const s3 = parseFloat(sgpa3) || 0;
     const s4 = parseFloat(sgpa4) || 0;
     const s5 = parseFloat(sgpa5) || 0;
+    const s6 = parseFloat(sgpa6) || 0;
+    const s7 = parseFloat(sgpa7) || 0;
+    const s8 = parseFloat(sgpa8) || 0;
 
-    const entries = [s1, s2, s3, s4];
-    if (!isRetryAttempt) {
-      entries.push(s5);
-    }
+    const entries = [s1, s2, s3, s4, s5, s6, s7, s8];
     const valid = entries.filter(v => v > 0);
     if (valid.length === 0) return 0;
     const sum = valid.reduce((a, b) => a + b, 0);
@@ -645,15 +662,17 @@ export default function PlacementsPage() {
 
     setLoading(true);
     try {
-      const semesterSgpa = [
+      const allSgpas = [
         { semester: 1, sgpa: parseFloat(sgpa1) || 0 },
         { semester: 2, sgpa: parseFloat(sgpa2) || 0 },
         { semester: 3, sgpa: parseFloat(sgpa3) || 0 },
-        { semester: 4, sgpa: parseFloat(sgpa4) || 0 }
+        { semester: 4, sgpa: parseFloat(sgpa4) || 0 },
+        { semester: 5, sgpa: parseFloat(sgpa5) || 0 },
+        { semester: 6, sgpa: parseFloat(sgpa6) || 0 },
+        { semester: 7, sgpa: parseFloat(sgpa7) || 0 },
+        { semester: 8, sgpa: parseFloat(sgpa8) || 0 }
       ];
-      if (!isRetryAttempt) {
-        semesterSgpa.push({ semester: 5, sgpa: parseFloat(sgpa5) || 0 });
-      }
+      const semesterSgpa = allSgpas.filter((item) => item.sgpa > 0);
 
       const semesterMarksheets = [
         { semester: 1, url: sem1MarksheetUrl },
@@ -768,15 +787,17 @@ export default function PlacementsPage() {
     if (!placementReg) return;
     setUpdatingAcademicResume(true);
     try {
-      const semesterSgpa = [
+      const allSgpas = [
         { semester: 1, sgpa: parseFloat(sgpa1) || 0 },
         { semester: 2, sgpa: parseFloat(sgpa2) || 0 },
         { semester: 3, sgpa: parseFloat(sgpa3) || 0 },
-        { semester: 4, sgpa: parseFloat(sgpa4) || 0 }
+        { semester: 4, sgpa: parseFloat(sgpa4) || 0 },
+        { semester: 5, sgpa: parseFloat(sgpa5) || 0 },
+        { semester: 6, sgpa: parseFloat(sgpa6) || 0 },
+        { semester: 7, sgpa: parseFloat(sgpa7) || 0 },
+        { semester: 8, sgpa: parseFloat(sgpa8) || 0 }
       ];
-      if (!isRetryAttempt) {
-        semesterSgpa.push({ semester: 5, sgpa: parseFloat(sgpa5) || 0 });
-      }
+      const semesterSgpa = allSgpas.filter((item) => item.sgpa > 0);
 
       const res = await fetch(`${BACKEND_URL}/api/placement/registration/${userEmail}/student-update`, {
         method: "PUT",
@@ -806,22 +827,88 @@ export default function PlacementsPage() {
     }
   };
 
+  // Quick resume upload from notification card or drive card
+  const handleQuickResumeUpload = async () => {
+    if (!quickResumeBase64) {
+      alert("Please select a PDF resume file first.");
+      return;
+    }
+    setIsUploadingQuickResume(true);
+    setQuickResumeSuccess(null);
+    try {
+      if (resumeModalJob?._id) {
+        // DRIVE-SPECIFIC TAILORED RESUME:
+        // Attaches solely to this company drive without modifying the master profile!
+        const res = await fetch(`${BACKEND_URL}/api/placement/jobs/${resumeModalJob._id}/attach-resume`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            resumeUrl: quickResumeBase64
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setQuickResumeSuccess(`Custom tailored resume attached exclusively for ${resumeModalJob.companyName || "this company"}! Your master profile resume remains untouched.`);
+          fetchMatches();
+        } else {
+          alert(data.message || "Failed to attach tailored resume.");
+        }
+      } else {
+        // MASTER PROFILE RESUME UPDATE
+        const res = await fetch(`${BACKEND_URL}/api/placement/registration/${userEmail}/student-update`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            resumeUrl: quickResumeBase64
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setQuickResumeSuccess("Resume updated successfully in your master placement profile!");
+          setResumeUrl(data.registration?.documents?.resumeUrl || quickResumeBase64);
+          fetchPlacementRegistration();
+          fetchMatches();
+        } else {
+          alert(data.message || "Failed to update resume.");
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error uploading resume.");
+    } finally {
+      setIsUploadingQuickResume(false);
+    }
+  };
+
   // Student Match Actions
   const handleStudentDecision = async (jobId: string, decision: "applied" | "no-apply") => {
     setLoading(true);
     try {
+      const targetMatch = placementMatches.find(
+        (m: any) => (m.jobPostingId?._id || m.jobPostingId) === jobId
+      );
+      // Prefer drive-specific tailored resume if attached, otherwise fallback to master resumeUrl
+      const finalResumeToSubmit = targetMatch?.applicationResumeUrl || resumeUrl;
+
       const res = await fetch(`${BACKEND_URL}/api/placement/jobs/${jobId}/decision`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ decision, applicationResume: resumeUrl })
+        body: JSON.stringify({ decision, applicationResume: finalResumeToSubmit })
       });
       const data = await res.json();
       if (data.success) {
         alert(`Successfully submitted decision: ${decision}`);
         fetchPlacementRegistration();
+        fetchMatches();
       } else {
         alert(data.message || "Failed to submit decision.");
       }
@@ -1031,7 +1118,11 @@ export default function PlacementsPage() {
     setLoading(true);
     try {
       const res = await fetch(`${BACKEND_URL}/api/placement/jobs/${jobId}/report`, {
-        headers: { Authorization: `Bearer ${token}` }
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}` 
+        }
       });
       const data = await res.json();
       if (data.success && data.report?.pdfUrl) {
@@ -1040,6 +1131,7 @@ export default function PlacementsPage() {
         alert(data.message || "Error generating report.");
       }
     } catch (err) {
+      console.error("PDF report compile error:", err);
       alert("Error compiling PDF report.");
     } finally {
       setLoading(false);
@@ -1280,7 +1372,7 @@ export default function PlacementsPage() {
                           </div>
                           <div>
                             <p className="font-bold text-zinc-500 uppercase text-[9px] mb-1">Semester SGPA Track (Editable):</p>
-                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 mt-1">
                               <div>
                                 <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 1</label>
                                 <input
@@ -1328,6 +1420,36 @@ export default function PlacementsPage() {
                                   step="0.01"
                                   value={sgpa5}
                                   onChange={(e) => setSgpa5(e.target.value)}
+                                  className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 6</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={sgpa6}
+                                  onChange={(e) => setSgpa6(e.target.value)}
+                                  className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 7</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={sgpa7}
+                                  onChange={(e) => setSgpa7(e.target.value)}
+                                  className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 block mb-0.5">Sem 8</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={sgpa8}
+                                  onChange={(e) => setSgpa8(e.target.value)}
                                   className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-bold text-center text-zinc-800 focus:ring-1 focus:ring-emerald-500"
                                 />
                               </div>
@@ -1645,7 +1767,7 @@ export default function PlacementsPage() {
                       {/* SGPAs entries */}
                       <div className="pt-2 space-y-3">
                         <label className="block text-xs font-black text-emerald-800 uppercase tracking-wider">Semester SGPA Data</label>
-                        <div className="grid grid-cols-5 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2">
                           <div>
                             <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Sem 1 SGPA</label>
                             <input type="number" step="0.01" required value={sgpa1} onChange={(e) => setSgpa1(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 text-xs font-semibold text-center" />
@@ -1662,12 +1784,22 @@ export default function PlacementsPage() {
                             <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Sem 4 SGPA</label>
                             <input type="number" step="0.01" required value={sgpa4} onChange={(e) => setSgpa4(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 text-xs font-semibold text-center" />
                           </div>
-                          {!isRetryAttempt && (
-                            <div>
-                              <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Sem 5 SGPA</label>
-                              <input type="number" step="0.01" required={!isRetryAttempt} value={sgpa5} onChange={(e) => setSgpa5(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 text-xs font-semibold text-center" />
-                            </div>
-                          )}
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Sem 5 SGPA</label>
+                            <input type="number" step="0.01" value={sgpa5} onChange={(e) => setSgpa5(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 text-xs font-semibold text-center" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Sem 6 SGPA</label>
+                            <input type="number" step="0.01" value={sgpa6} onChange={(e) => setSgpa6(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 text-xs font-semibold text-center" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Sem 7 SGPA</label>
+                            <input type="number" step="0.01" value={sgpa7} onChange={(e) => setSgpa7(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 text-xs font-semibold text-center" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-400 mb-0.5">Sem 8 SGPA</label>
+                            <input type="number" step="0.01" value={sgpa8} onChange={(e) => setSgpa8(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 text-xs font-semibold text-center" />
+                          </div>
                         </div>
 
                         {/* derived CGPA read only display */}
@@ -1783,25 +1915,58 @@ export default function PlacementsPage() {
                               {m.isEligible ? (
                                 <>
                                   {m.studentDecision === "applied" ? (
-                                    <span className="bg-emerald-600 text-white font-bold text-xs uppercase px-4 py-2 rounded-xl block text-center">Applied successfully</span>
+                                    <div className="space-y-1">
+                                      <span className="bg-emerald-600 text-white font-bold text-xs uppercase px-4 py-2 rounded-xl block text-center">
+                                        Applied successfully
+                                      </span>
+                                      {m.applicationResumeUrl && (
+                                        <a
+                                          href={m.applicationResumeUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold hover:underline block text-center"
+                                        >
+                                          📄 View Submitted Resume
+                                        </a>
+                                      )}
+                                    </div>
                                   ) : m.studentDecision === "no-apply" ? (
                                     <span className="bg-zinc-200 text-zinc-500 font-bold text-xs uppercase px-4 py-2 rounded-xl block text-center">Opted-Out</span>
                                   ) : deadlinePassed ? (
                                     <span className="bg-zinc-100 text-zinc-400 font-bold text-xs uppercase px-4 py-2 rounded-xl block text-center">Deadline Passed</span>
                                   ) : (
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                                      {/* Drive-Specific Tailored Resume Upload Button */}
                                       <button
-                                        onClick={() => handleStudentDecision(m.jobPostingId._id, "no-apply")}
-                                        className="px-4 py-2 border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-xl shadow-sm"
+                                        type="button"
+                                        onClick={() => {
+                                          setResumeModalJob(m.jobPostingId || null);
+                                          setQuickResumeFile(null);
+                                          setQuickResumeBase64("");
+                                          setQuickResumeSuccess(null);
+                                          setShowQuickResumeModal(true);
+                                        }}
+                                        className="py-1.5 px-3 bg-white border border-zinc-200 hover:border-emerald-400 hover:bg-emerald-50/50 text-zinc-700 hover:text-emerald-900 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 transition-all"
+                                        title={`Upload a customized resume exclusively for ${m.jobPostingId.companyName}`}
                                       >
-                                        No Apply
+                                        <span>📄</span>
+                                        <span>{m.applicationResumeUrl ? "Change Custom Resume" : "Custom Resume"}</span>
                                       </button>
-                                      <button
-                                        onClick={() => handleStudentDecision(m.jobPostingId._id, "applied")}
-                                        className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm"
-                                      >
-                                        Apply Now
-                                      </button>
+
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => handleStudentDecision(m.jobPostingId._id, "no-apply")}
+                                          className="px-4 py-2 border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-xl shadow-sm"
+                                        >
+                                          No Apply
+                                        </button>
+                                        <button
+                                          onClick={() => handleStudentDecision(m.jobPostingId._id, "applied")}
+                                          className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm"
+                                        >
+                                          Apply Now
+                                        </button>
+                                      </div>
                                     </div>
                                   )}
                                 </>
@@ -2640,45 +2805,64 @@ export default function PlacementsPage() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
-                          {userRole === "student" && n.jobPostingId && (() => {
+                        <div className="flex items-center gap-2 shrink-0 self-end md:self-center flex-wrap">
+                          {userRole === "student" && (() => {
                             const jId = n.jobPostingId?._id || n.jobPostingId;
-                            const matchItem = placementMatches.find(
-                              (m) => (m.jobPostingId?._id || m.jobPostingId) === jId
-                            );
-                            const isFacultyAlert =
-                              (n.source === "faculty" || n.type === "custom_alert") &&
-                              n.type !== "placement_drive";
+                            const matchItem = jId
+                              ? placementMatches.find(
+                                  (m) => (m.jobPostingId?._id || m.jobPostingId) === jId
+                                )
+                              : null;
                             const isAlreadyApplied =
                               matchItem?.studentDecision === "applied" ||
                               n.message?.toLowerCase().includes("already registered");
 
-                            if (isFacultyAlert && isAlreadyApplied) {
-                              return (
-                                <button
-                                  onClick={() => {
-                                    if (isUnread) handleMarkNotifRead(n._id);
-                                    setActiveTab("student-matches");
-                                  }}
-                                  className="py-1.5 px-3 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-800 text-xs font-black rounded-xl shadow-2xs flex items-center gap-1.5"
-                                >
-                                  <span className="text-emerald-600">✔</span> Already Registered
-                                </button>
-                              );
-                            }
-
                             return (
-                              <button
-                                onClick={() => {
-                                  if (isUnread) handleMarkNotifRead(n._id);
-                                  setActiveTab("student-matches");
-                                }}
-                                className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm"
-                              >
-                                View & Apply ➔
-                              </button>
+                              <>
+                                {/* Show Update Resume only if candidate has NOT applied yet */}
+                                {!isAlreadyApplied && (
+                                  <button
+                                    onClick={() => {
+                                      setResumeModalJob(n.jobPostingId || null);
+                                      setQuickResumeFile(null);
+                                      setQuickResumeBase64("");
+                                      setQuickResumeSuccess(null);
+                                      setShowQuickResumeModal(true);
+                                    }}
+                                    className="py-1.5 px-3 bg-white border border-zinc-200 hover:border-emerald-400 hover:bg-emerald-50/50 text-zinc-700 hover:text-emerald-900 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 transition-all"
+                                    title="Update or revise your placement resume before applying"
+                                  >
+                                    <span>📄</span> Update Resume
+                                  </button>
+                                )}
+
+                                {n.jobPostingId && (
+                                  isAlreadyApplied ? (
+                                    <button
+                                      onClick={() => {
+                                        if (isUnread) handleMarkNotifRead(n._id);
+                                        setActiveTab("student-matches");
+                                      }}
+                                      className="py-1.5 px-3 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-800 text-xs font-black rounded-xl shadow-2xs flex items-center gap-1.5"
+                                    >
+                                      <span className="text-emerald-600">✔</span> Already Applied
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => {
+                                        if (isUnread) handleMarkNotifRead(n._id);
+                                        setActiveTab("student-matches");
+                                      }}
+                                      className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+                                    >
+                                      View & Apply ➔
+                                    </button>
+                                  )
+                                )}
+                              </>
                             );
                           })()}
+
                           {isUnread && (
                             <button
                               onClick={() => handleMarkNotifRead(n._id)}
@@ -3381,6 +3565,262 @@ export default function PlacementsPage() {
             </div>
           </div>
         )}
+
+        {/* QUICK RESUME UPLOAD MODAL FOR STUDENTS (Supports Master or Company-Specific Tailored Resumes) */}
+        {showQuickResumeModal && (() => {
+          const modalTargetJobId = resumeModalJob?._id || resumeModalJob;
+          const currentMatchForModal = modalTargetJobId
+            ? placementMatches.find((m: any) => (m.jobPostingId?._id || m.jobPostingId) === modalTargetJobId)
+            : null;
+          const tailoredDriveResumeUrl = currentMatchForModal?.applicationResumeUrl;
+
+          return (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-emerald-100 space-y-4">
+                {/* Header */}
+                <div className="flex justify-between items-start border-b border-zinc-100 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="p-2 bg-emerald-50 rounded-xl text-lg border border-emerald-200">
+                      {resumeModalJob ? "🏢" : "📄"}
+                    </span>
+                    <div>
+                      <h4 className="text-base font-black text-emerald-800">
+                        {resumeModalJob
+                          ? `Custom Resume for ${resumeModalJob.companyName || "Company"}`
+                          : "Update Placement Profile Resume"}
+                      </h4>
+                      <p className="text-xs text-zinc-500 mt-0.5">
+                        {resumeModalJob
+                          ? `Drive: ${resumeModalJob.companyName || "Placement Drive"} (${resumeModalJob.role || "Role"})`
+                          : "Upload a revised resume for your placement master profile"}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowQuickResumeModal(false)}
+                    className="text-zinc-400 hover:text-zinc-700 font-black text-lg p-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Company-Specific Notice Callout */}
+                {resumeModalJob && (
+                  <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-2xl text-xs text-amber-900 space-y-1">
+                    <div className="flex items-center gap-1.5 font-black text-amber-900">
+                      <span>🔒</span>
+                      <span>Company-Specific Tailored Resume</span>
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-relaxed">
+                      This resume is submitted <strong>exclusively for {resumeModalJob.companyName}</strong>. Your Master Placement Profile resume and applications for other companies remain completely safe and untouched!
+                    </p>
+                  </div>
+                )}
+
+                {/* Resume Status Card */}
+                {resumeModalJob ? (
+                  tailoredDriveResumeUrl ? (
+                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wider">
+                          Custom Tailored Resume Active
+                        </span>
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                          ✔ Exclusively for {resumeModalJob.companyName}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-xs font-bold text-emerald-950 truncate max-w-[200px]">
+                          📄 Tailored_{resumeModalJob.companyName}_Resume.pdf
+                        </span>
+                        <a
+                          href={tailoredDriveResumeUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-emerald-700 hover:text-emerald-900 font-black hover:underline flex items-center gap-1"
+                        >
+                          👁️ View Custom PDF
+                        </a>
+                      </div>
+                      {resumeUrl && (
+                        <div className="border-t border-emerald-100 pt-2 flex items-center justify-between text-[11px] text-zinc-500">
+                          <span>Master Profile Resume (Safe):</span>
+                          <a href={resumeUrl} target="_blank" rel="noreferrer" className="text-zinc-600 hover:text-zinc-900 underline font-semibold">
+                            View Master
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-3.5 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Default Profile Resume</span>
+                        {resumeUrl && (
+                          <span className="text-[10px] font-bold text-zinc-600 bg-zinc-200/70 px-2 py-0.5 rounded-full">
+                            Fallback Default
+                          </span>
+                        )}
+                      </div>
+                      {resumeUrl ? (
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-xs font-semibold text-zinc-700 truncate max-w-[200px]">
+                            📄 Placement_Resume.pdf
+                          </span>
+                          <a
+                            href={resumeUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-emerald-700 hover:text-emerald-900 font-bold hover:underline flex items-center gap-1"
+                          >
+                            👁️ View Master Resume
+                          </a>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-zinc-500 italic">No master resume uploaded in profile yet.</p>
+                      )}
+                      <p className="text-[10px] text-zinc-400 pt-1">
+                        Uploading below will attach a tailored resume <strong>only for {resumeModalJob.companyName}</strong>.
+                      </p>
+                    </div>
+                  )
+                ) : (
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-3.5 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Current Master Resume</span>
+                      {resumeUrl && (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          ✔ Linked to Profile
+                        </span>
+                      )}
+                    </div>
+                    {resumeUrl ? (
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-xs font-semibold text-zinc-700 truncate max-w-[200px]">
+                          📄 Placement_Resume.pdf
+                        </span>
+                        <a
+                          href={resumeUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-emerald-700 hover:text-emerald-900 font-bold hover:underline flex items-center gap-1"
+                        >
+                          👁️ View Current
+                        </a>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-zinc-500 italic">No resume uploaded in profile yet.</p>
+                    )}
+                  </div>
+                )}
+
+                {/* File Upload Selector */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-zinc-700">
+                    {resumeModalJob
+                      ? `Select PDF Resume Tailored for ${resumeModalJob.companyName} *`
+                      : "Choose New PDF Resume *"}
+                  </label>
+                  <div className="border-2 border-dashed border-zinc-250 hover:border-emerald-400 rounded-2xl p-4 text-center cursor-pointer transition-all bg-zinc-50/50 hover:bg-emerald-50/30 relative">
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.type !== "application/pdf") {
+                          alert("Only PDF files are supported for resumes.");
+                          return;
+                        }
+                        if (file.size > 5 * 1024 * 1024) {
+                          alert("File size exceeds 5MB limit.");
+                          return;
+                        }
+                        setQuickResumeFile(file);
+                        setQuickResumeSuccess(null);
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setQuickResumeBase64(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                    <div className="space-y-1">
+                      <span className="text-2xl block">📁</span>
+                      {quickResumeFile ? (
+                        <div>
+                          <p className="text-xs font-black text-emerald-800">{quickResumeFile.name}</p>
+                          <p className="text-[10px] text-zinc-400 font-medium">
+                            {(quickResumeFile.size / 1024).toFixed(1)} KB • Ready to upload
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs font-bold text-zinc-700">Click to browse or drop your PDF here</p>
+                          <p className="text-[10px] text-zinc-400">PDF up to 5MB</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Success Message */}
+                {quickResumeSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2">
+                    <span>✅</span>
+                    <span>{quickResumeSuccess}</span>
+                  </div>
+                )}
+
+                {/* Buttons */}
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickResumeModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-zinc-600 hover:text-zinc-800 rounded-xl transition-all"
+                  >
+                    {quickResumeSuccess ? "Close" : "Cancel"}
+                  </button>
+                  {quickResumeSuccess && resumeModalJob ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowQuickResumeModal(false);
+                        setActiveTab("student-matches");
+                      }}
+                      className="px-4 py-2 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                    >
+                      Proceed to Apply ➔
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleQuickResumeUpload}
+                      disabled={!quickResumeBase64 || isUploadingQuickResume}
+                      className="px-5 py-2 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-md transition-all flex items-center gap-2"
+                    >
+                      {isUploadingQuickResume ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>💾</span>
+                          <span>
+                            {resumeModalJob
+                              ? `Save for ${resumeModalJob.companyName || "Drive"} Only`
+                              : "Upload & Save to Profile"}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </DashboardLayout>
   );

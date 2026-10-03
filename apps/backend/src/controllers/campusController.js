@@ -455,6 +455,61 @@ exports.claimLostFound = async (req, res) => {
   }
 };
 
+exports.updateLostFound = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, type, description, location, contact, contactDetails, proofUrl, imageUrl } = req.body;
+
+    const item = await LostFound.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Lost & Found item not found." });
+    }
+
+    const isOwner = item.reporter.toString() === req.user.id;
+    const isStaff = ['management', 'admin'].includes(req.user.role);
+    if (!isOwner && !isStaff) {
+      return res.status(403).json({ success: false, message: "Unauthorized to edit this item." });
+    }
+
+    if (title !== undefined) item.title = title;
+    if (type !== undefined) item.type = type;
+    if (description !== undefined) item.description = description;
+    if (location !== undefined) item.location = location;
+    if (contact !== undefined || contactDetails !== undefined) {
+      item.contact = contact || contactDetails;
+    }
+    if (proofUrl !== undefined) item.proofUrl = proofUrl;
+    if (imageUrl !== undefined) item.imageUrl = imageUrl;
+
+    await item.save();
+    res.json({ success: true, message: "Lost & Found item updated successfully", item });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.deleteLostFound = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const item = await LostFound.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Lost & Found item not found." });
+    }
+
+    const isOwner = item.reporter.toString() === req.user.id;
+    const isStaff = ['management', 'admin'].includes(req.user.role);
+    if (!isOwner && !isStaff) {
+      return res.status(403).json({ success: false, message: "Unauthorized to delete this item." });
+    }
+
+    await LostFound.findByIdAndDelete(id);
+    res.json({ success: true, message: "Lost & Found item deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 exports.getLocationDetail = async (req, res) => {
   try {
     const location = await Location.findById(req.params.id);
@@ -825,7 +880,16 @@ exports.updateProfile = async (req, res) => {
     if (name !== undefined) profile.name = name;
     if (rollNumber !== undefined) profile.rollNumber = rollNumber;
     if (branch !== undefined) profile.branch = branch;
-    if (graduationYear !== undefined) profile.graduationYear = graduationYear;
+    if (graduationYear !== undefined) {
+      profile.graduationYear = graduationYear;
+      profile.yop = graduationYear;
+    }
+    if (req.body.yop !== undefined) {
+      profile.yop = req.body.yop;
+      profile.graduationYear = req.body.yop;
+    }
+    if (req.body.yoa !== undefined) profile.yoa = req.body.yoa;
+    if (req.body.admissionYear !== undefined) profile.admissionYear = req.body.admissionYear;
     if (semester !== undefined) profile.semester = semester;
     if (bio !== undefined) profile.bio = bio;
     if (contact !== undefined) profile.contact = contact;

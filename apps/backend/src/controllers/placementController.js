@@ -51,8 +51,7 @@ const calculateEducationGaps = (academic) => {
 // Helper: Calculate CGPA
 const calculateCgpa = (sgpaEntries, isRetryAttempt) => {
   if (!sgpaEntries || sgpaEntries.length === 0) return 0;
-  const maxSemesters = isRetryAttempt ? 4 : 5;
-  const filtered = sgpaEntries.filter(e => e.semester >= 1 && e.semester <= maxSemesters && typeof e.sgpa === "number");
+  const filtered = sgpaEntries.filter(e => e.semester >= 1 && e.semester <= 8 && typeof e.sgpa === "number" && e.sgpa > 0);
   if (filtered.length === 0) return 0;
   const sum = filtered.reduce((acc, curr) => acc + curr.sgpa, 0);
   return Math.round((sum / filtered.length) * 100) / 100;
@@ -337,8 +336,12 @@ exports.updateStudentResumeAndCgpa = async (req, res) => {
 
     // 1. Update resume if provided
     if (resumeUrl && typeof resumeUrl === "string") {
+      let finalResumeUrl = resumeUrl;
+      if (resumeUrl.startsWith("data:")) {
+        finalResumeUrl = await uploadBase64ResumeToCloudinary(resumeUrl, studentId);
+      }
       if (!registration.documents) registration.documents = {};
-      registration.documents.resumeUrl = resumeUrl;
+      registration.documents.resumeUrl = finalResumeUrl;
     }
 
     // 2. Update semesterSgpa and recalculate CGPA if provided
@@ -525,12 +528,20 @@ exports.submitStudentDecision = async (req, res) => {
     }
 
     if (decision === "applied") {
-      if (!applicationResume) {
+      let finalResume = match.applicationResumeUrl || applicationResume;
+      if (!finalResume) {
+        const studentReg = await PlacementRegistration.findOne({ studentId });
+        finalResume = studentReg?.documents?.resumeUrl;
+      }
+      if (!finalResume) {
         return res.status(400).json({ success: false, message: "A resume is required to complete this application." });
       }
-      // Upload raw base64 data to Cloudinary or resolve URL
-      const secureUrl = await uploadBase64ResumeToCloudinary(applicationResume, studentId);
-      match.applicationResumeUrl = secureUrl;
+      if (finalResume.startsWith("data:")) {
+        const secureUrl = await uploadBase64ResumeToCloudinary(finalResume, studentId);
+        match.applicationResumeUrl = secureUrl;
+      } else {
+        match.applicationResumeUrl = finalResume;
+      }
     }
 
     match.studentDecision = decision;
@@ -598,6 +609,53 @@ exports.acknowledgeNotification = async (req, res) => {
   }
 };
 
+// H2. ATTACH / UPDATE COMPANY-SPECIFIC RESUME (Without modifying master profile)
+exports.attachDriveSpecificResume = async (req, res) => {
+  try {
+    const { id } = req.params; // jobPostingId
+    const { resumeUrl } = req.body;
+    let studentId = req.user.id;
+
+    if (!resumeUrl) {
+      return res.status(400).json({ success: false, message: "Resume data is required." });
+    }
+
+    const job = await JobPosting.findById(id);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job opportunity not found." });
+    }
+
+    // Upload base64 resume or resolve URL
+    const secureUrl = await uploadBase64ResumeToCloudinary(resumeUrl, studentId);
+
+    // Find or create eligibility match record for this specific company
+    let match = await EligibilityMatchResult.findOne({ jobPostingId: id, studentId });
+    if (!match) {
+      match = new EligibilityMatchResult({
+        jobPostingId: id,
+        studentId,
+        isEligible: true,
+        failedConditions: [],
+        studentDecision: "pending",
+        applicationResumeUrl: secureUrl
+      });
+    } else {
+      match.applicationResumeUrl = secureUrl;
+    }
+    await match.save();
+
+    res.json({
+      success: true,
+      message: `Custom tailored resume for ${job.companyName} attached successfully!`,
+      applicationResumeUrl: secureUrl,
+      jobPostingId: id
+    });
+  } catch (err) {
+    console.error("Error attaching company-specific resume:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // I. GENERATE REPORT AFTER DEADLINE (PDF TO CLOUDINARY UPLOADS)
 exports.generatePostDeadlineReport = async (req, res) => {
   try {
@@ -615,13 +673,32 @@ exports.generatePostDeadlineReport = async (req, res) => {
     const studentIds = [];
     
     for (const match of matches) {
-      const reg = await PlacementRegistration.findOne({ studentId: match.studentId._id });
+      if (!match.studentId) continue;
+      const sId = match.studentId._id || match.studentId;
+      const reg = await PlacementRegistration.findOne({ studentId: sId });
       if (reg) {
         studentRegistrations.push({
-          userEmail: match.studentId.email,
+          userEmail: match.studentId.email || "N/A",
           registration: reg
         });
-        studentIds.push(match.studentId._id);
+        studentIds.push(sId);
+      } else {
+        studentRegistrations.push({
+          userEmail: match.studentId.email || "N/A",
+          registration: {
+            personal: {
+              fullName: match.studentId.name || (match.studentId.email ? match.studentId.email.split("@")[0] : "Student"),
+              email: match.studentId.email || "N/A",
+              phone: match.studentId.phone || "N/A"
+            },
+            academic: {
+              rollNumber: match.studentId.enrollmentNumber || "N/A",
+              branch: match.studentId.branch || "N/A",
+              cgpa: "N/A"
+            }
+          }
+        });
+        studentIds.push(sId);
       }
     }
 
@@ -826,25 +903,7 @@ function generatePdfReportBuffer(job, studentRegistrations) {
 // Helper: Pipe PDF Buffer directly to Cloudinary or write locally as fallback
 function uploadPdfToCloudinary(buffer, fileName) {
   return new Promise((resolve, reject) => {
-    if (hasCloudinary) {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        { 
-          resource_type: "raw", 
-          folder: "placement_reports",
-          public_id: fileName,
-          format: "pdf"
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve(result.secure_url);
-          }
-        }
-      );
-      stream.Readable.from(buffer).pipe(uploadStream);
-    } else {
-      // Local fallback
+    const saveLocally = () => {
       try {
         const dir = path.join(process.cwd(), "public/uploads");
         if (!fs.existsSync(dir)) {
@@ -856,6 +915,32 @@ function uploadPdfToCloudinary(buffer, fileName) {
       } catch (err) {
         reject(err);
       }
+    };
+
+    if (hasCloudinary) {
+      try {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { 
+            resource_type: "raw", 
+            folder: "placement_reports",
+            public_id: fileName
+          },
+          (error, result) => {
+            if (error || !result?.secure_url) {
+              console.warn("Cloudinary upload failed, fallback to local storage:", error?.message);
+              saveLocally();
+            } else {
+              resolve(result.secure_url);
+            }
+          }
+        );
+        stream.Readable.from(buffer).pipe(uploadStream);
+      } catch (e) {
+        console.warn("Cloudinary stream error, fallback to local storage:", e.message);
+        saveLocally();
+      }
+    } else {
+      saveLocally();
     }
   });
 }
@@ -867,31 +952,36 @@ async function uploadBase64ResumeToCloudinary(base64Data, studentId) {
       return base64Data;
     }
     
-    if (hasCloudinary) {
-      const result = await cloudinary.uploader.upload(base64Data, {
-        resource_type: "raw",
-        folder: "placement_resumes",
-        public_id: `resume_${studentId}_${Date.now()}`,
-        format: "pdf"
-      });
-      return result.secure_url;
-    } else {
-      // Local fallback
+    const saveLocally = () => {
       const base64Content = base64Data.replace(/^data:application\/pdf;base64,/, "").replace(/^data:image\/[a-zA-Z+]+;base64,/, "");
       const buffer = Buffer.from(base64Content, "base64");
       const dir = path.join(process.cwd(), "public/uploads");
-      
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      
       const fileName = `resume_${studentId}_${Date.now()}.pdf`;
       const filePath = path.join(dir, fileName);
       fs.writeFileSync(filePath, buffer);
       return `http://localhost:5000/uploads/${fileName}`;
+    };
+
+    if (hasCloudinary) {
+      try {
+        const result = await cloudinary.uploader.upload(base64Data, {
+          resource_type: "raw",
+          folder: "placement_resumes",
+          public_id: `resume_${studentId}_${Date.now()}`
+        });
+        return result.secure_url;
+      } catch (err) {
+        console.warn("Cloudinary resume upload failed, using local fallback:", err.message);
+        return saveLocally();
+      }
+    } else {
+      return saveLocally();
     }
   } catch (err) {
-    console.error("Cloudinary/Local resume upload failed:", err);
+    console.error("Resume upload failed:", err);
     throw new Error("Failed to upload resume: " + err.message);
   }
 }
@@ -984,30 +1074,32 @@ async function runMatchingEngine(jobPostingId, senderId = null, senderRole = "sy
       { upsert: true, new: true }
     );
 
-    // If student is eligible, automatically notify them
-    if (isEligible) {
-      try {
-        const existingNotif = await Notification.findOne({
-          recipientId: studentId,
-          jobPostingId: job._id,
-          type: "placement_drive"
-        });
+    // Send active drive notification to registered candidate
+    try {
+      const existingNotif = await Notification.findOne({
+        recipientId: studentId,
+        jobPostingId: job._id
+      });
 
-        if (!existingNotif) {
-          const deadlineStr = job.applicationDeadline ? new Date(job.applicationDeadline).toLocaleDateString() : "soon";
-          await dispatchNotification({
-            recipientRole: "student",
-            recipientId: studentId,
-            source: "system",
-            sentBy: senderId || null,
-            type: "placement_drive",
-            jobPostingId: job._id,
-            message: `New Placement Drive: You are eligible for ${job.companyName} (${job.role})! Application deadline: ${deadlineStr}. Apply with your locked profile or updated resume.`
-          });
-        }
-      } catch (notifErr) {
-        console.error("Error creating auto notification for student:", studentId, notifErr);
+      if (!existingNotif) {
+        const deadlineStr = job.applicationDeadline ? new Date(job.applicationDeadline).toLocaleDateString() : "Open";
+        const eligibilitySummary = isEligible
+          ? "You meet all eligibility criteria! Apply with your profile or updated resume."
+          : "Drive is currently active. Review eligibility criteria and guidelines.";
+
+        await dispatchNotification({
+          recipientRole: "student",
+          recipientId: studentId,
+          source: "system",
+          sentBy: senderId || null,
+          type: "placement_drive",
+          title: `Campus Drive: ${job.companyName} (${job.role})`,
+          jobPostingId: job._id,
+          message: `Active Campus Drive: ${job.companyName} is hiring for ${job.role}. Application Deadline: ${deadlineStr}. ${eligibilitySummary}`
+        });
       }
+    } catch (notifErr) {
+      console.error("Error creating auto notification for student:", studentId, notifErr);
     }
   }
 }

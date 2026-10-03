@@ -139,6 +139,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               if (userRole === "placement_head") {
                 return item.path === "/placements";
               }
+              if (userRole === "management") {
+                return item.path === "/#desktop" || item.path === "/complaints" || item.path === "/lostfound";
+              }
               if (userRole === "student") {
                 if (item.path === "/placements") {
                   const isAllowed = studentYear >= 3 || studentSemester >= 6;

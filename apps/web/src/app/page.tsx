@@ -27,6 +27,8 @@ export default function Home() {
   const [post, setPost] = useState("");
   const [year, setYear] = useState("1");
   const [semester, setSemester] = useState("1");
+  const [yoa, setYoa] = useState("2023");
+  const [yop, setYop] = useState("2027");
   const [facultyDept, setFacultyDept] = useState("Internet of Things (IoT)");
   const [employeeId, setEmployeeId] = useState("");
   const [mgmtDept, setMgmtDept] = useState("Campus Facilities & Operations");
@@ -236,15 +238,19 @@ export default function Home() {
       payload.branch = branch;
       payload.year = year;
       payload.semester = semester;
-    } else {
-      payload.collegeId = collegeId || (finalRole === "placement_head" ? `TPO-${Date.now().toString().slice(-4)}` : "");
-      payload.post = post || (finalRole === "placement_head" ? "Placement Head" : "Professor");
-      payload.department = facultyDept;
+      payload.yoa = parseInt(yoa) || undefined;
+      payload.yop = parseInt(yop) || undefined;
+      payload.admissionYear = parseInt(yoa) || undefined;
+      payload.graduationYear = parseInt(yop) || undefined;
     } else if (selectedRole === "management") {
       payload.employeeId = employeeId;
       payload.department = mgmtDept;
       payload.phone = mgmtPhone;
       payload.officeLocation = officeLocation;
+    } else {
+      payload.collegeId = collegeId || (finalRole === "placement_head" ? `TPO-${Date.now().toString().slice(-4)}` : "");
+      payload.post = post || (finalRole === "placement_head" ? "Placement Head" : "Professor");
+      payload.department = facultyDept;
     }
 
     try {
@@ -282,6 +288,15 @@ export default function Home() {
       e.preventDefault();
       alert("Access Restricted: As Placement Head, your account has dedicated access exclusively to the Placement Board.");
       router.push("/placements");
+      return;
+    }
+    if (userRole === "management") {
+      if (app.path !== "/lostfound" && app.path !== "/complaints") {
+        e.preventDefault();
+        alert("Management accounts are dedicated to Lost & Found operations and Facility Complaints desks.");
+        return;
+      }
+      router.push(app.path);
       return;
     }
     const isPublic = app.path === "/finder";
@@ -652,7 +667,7 @@ export default function Home() {
       {/* Auth Modal popup */}
       {isAuthModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white/95 rounded-3xl max-w-md w-full border border-emerald-100 shadow-2xl p-8 relative animate-[fadeIn_0.2s_ease-out]">
+          <div className="bg-white/95 rounded-3xl max-w-md w-full border border-emerald-100 shadow-2xl p-8 relative animate-[fadeIn_0.2s_ease-out] max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setIsAuthModalOpen(false)}
               className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-700 text-lg"
@@ -774,7 +789,15 @@ export default function Home() {
                           <select
                             required
                             value={year}
-                            onChange={(e) => setYear(e.target.value)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setYear(val);
+                              const currentYear = new Date().getFullYear();
+                              const numericYear = parseInt(val) || 1;
+                              const calculatedYoa = currentYear - (numericYear - 1);
+                              setYoa(calculatedYoa.toString());
+                              setYop((calculatedYoa + 4).toString());
+                            }}
                             className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none text-zinc-800"
                           >
                             <option value="1">1st Year</option>
@@ -800,6 +823,44 @@ export default function Home() {
                             <option value="7">7th Sem</option>
                             <option value="8">8th Sem</option>
                           </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">YOA (Admission)</label>
+                          <input
+                            type="number"
+                            required
+                            value={yoa}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setYoa(val);
+                              if (val.length === 4) {
+                                const num = parseInt(val);
+                                if (!isNaN(num)) {
+                                  setYop((num + 4).toString());
+                                }
+                              }
+                            }}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                            placeholder="e.g. 2022"
+                            min="2000"
+                            max="2099"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">YOP (Passing)</label>
+                          <input
+                            type="number"
+                            required
+                            value={yop}
+                            onChange={(e) => setYop(e.target.value)}
+                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none"
+                            placeholder="e.g. 2026"
+                            min="2000"
+                            max="2099"
+                          />
                         </div>
                       </div>
                     </>

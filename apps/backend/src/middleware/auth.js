@@ -36,6 +36,9 @@ module.exports = {
   verifyFaculty: verifyRole(["faculty"]),
   verifyAdmin: verifyRole(["admin"]),
   verifyPlacementHead: verifyRole(["placement_head"]),
+  verifyManagement: verifyRole(["management"]),
+  verifyManagementOrAdmin: verifyRole(["management", "admin"]),
   verifyFacultyOrAdmin: verifyRole(["faculty", "admin", "placement_head"]),
-  verifyPlacementHeadOrAdmin: verifyRole(["placement_head", "admin"])
+  verifyPlacementHeadOrAdmin: verifyRole(["placement_head", "admin"]),
+  verifyManagementOrFacultyOrAdmin: verifyRole(["management", "faculty", "admin", "placement_head"])
 };

@@ -10,6 +10,7 @@ const dispatchNotification = async ({
   sentBy = null,
   type = "placement_drive",
   jobPostingId = null,
+  title = null,
   message
 }) => {
   try {
@@ -20,6 +21,7 @@ const dispatchNotification = async ({
       sentBy,
       type,
       jobPostingId,
+      title,
       message,
       isRead: false
     });
@@ -28,6 +30,11 @@ const dispatchNotification = async ({
     // Real-time broadcast if socket is connected
     if (global.io) {
       global.io.to(recipientId.toString()).emit("notification:new", notification);
+      User.findById(recipientId).select("email").then(u => {
+        if (u && u.email && global.io) {
+          global.io.to(u.email).emit("notification:new", notification);
+        }
+      }).catch(() => {});
     }
     return notification;
   } catch (err) {

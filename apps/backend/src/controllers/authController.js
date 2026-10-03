@@ -83,13 +83,18 @@ exports.register = async (req, res) => {
     // Create profile
     if (role === "student") {
       const finalRoll = rollNumber || enrollmentNumber;
-      const graduationYear = req.body.graduationYear || (new Date().getFullYear() + 3);
+      const parsedYoa = req.body.yoa ? parseInt(req.body.yoa) : (req.body.admissionYear ? parseInt(req.body.admissionYear) : undefined);
+      const parsedYop = req.body.yop ? parseInt(req.body.yop) : (req.body.graduationYear ? parseInt(req.body.graduationYear) : (parsedYoa ? parsedYoa + 4 : new Date().getFullYear() + 3));
+      const graduationYear = parsedYop;
       const studentProfile = new StudentProfile({
         user: user._id,
         name,
         rollNumber: finalRoll,
         branch,
         graduationYear,
+        admissionYear: parsedYoa,
+        yoa: parsedYoa,
+        yop: parsedYop,
         year: parseInt(req.body.year) || 1,
         semester: parseInt(req.body.semester) || 1
       });

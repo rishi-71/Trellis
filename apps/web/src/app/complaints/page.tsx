@@ -32,6 +32,17 @@ export default function ComplaintsPage() {
   const [activeResolveModal, setActiveResolveModal] = useState<any | null>(null);
   const [resolutionNotes, setResolutionNotes] = useState("");
 
+  // Edit Complaint Modal
+  const [activeEditModal, setActiveEditModal] = useState<any | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editCategory, setEditCategory] = useState("other");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editExistingImageUrl, setEditExistingImageUrl] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -220,6 +231,88 @@ export default function ComplaintsPage() {
       }
     } catch (err) {
       alert("Error updating status.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openEditModal = (complaint: any) => {
+    setActiveEditModal(complaint);
+    setEditTitle(complaint.title || "");
+    setEditLocation(complaint.location || "");
+    setEditCategory(complaint.category || "other");
+    setEditDescription(complaint.description || "");
+    setEditExistingImageUrl(complaint.imageUrl || "");
+    setEditPhotoFile(null);
+    if (editFileInputRef.current) editFileInputRef.current.value = "";
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeEditModal) return;
+    if (!editTitle || !editLocation || !editDescription) {
+      alert("Please fill in Title, Location, and Description.");
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      let finalImageUrl = editExistingImageUrl;
+      if (editPhotoFile) {
+        finalImageUrl = await uploadFile(editPhotoFile);
+      }
+
+      const response = await fetch(`${BACKEND_URL}/api/complaints/${activeEditModal._id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: editTitle,
+          location: editLocation,
+          category: editCategory,
+          description: editDescription,
+          imageUrl: finalImageUrl
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert("Complaint ticket updated successfully!");
+        setActiveEditModal(null);
+        fetchComplaints();
+      } else {
+        alert(data.message || "Failed to update complaint.");
+      }
+    } catch (err: any) {
+      alert("Error updating complaint: " + err.message);
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleDeleteComplaint = async (complaintId: string) => {
+    if (!confirm("Are you sure you want to delete this complaint ticket? This action cannot be undone.")) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/complaints/${complaintId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert("Complaint ticket deleted successfully!");
+        fetchComplaints();
+      } else {
+        alert(data.message || "Failed to delete complaint.");
+      }
+    } catch (err: any) {
+      alert("Error deleting complaint: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -536,37 +629,58 @@ export default function ComplaintsPage() {
                         )}
                       </div>
 
-                      {/* Management Controls */}
-                      {isManagement && (
-                        <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-200/60 justify-end">
-                          {!isOngoing && !isResolved && (
-                            <button
-                              onClick={() => openOngoingModal(c)}
-                              className="py-2 px-3.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5"
-                            >
-                              <span>🛠️</span> Mark Work Ongoing
-                            </button>
-                          )}
-
-                          {isOngoing && (
-                            <button
-                              onClick={() => openOngoingModal(c)}
-                              className="py-1.5 px-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold rounded-xl transition"
-                            >
-                              ✏️ Update Progress
-                            </button>
-                          )}
-
-                          {!isResolved && (
-                            <button
-                              onClick={() => openResolveModal(c)}
-                              className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5"
-                            >
-                              <span>✅</span> Mark Work Completed
-                            </button>
-                          )}
+                      {/* Actions Toolbar: Edit, Delete, and Management Controls */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-zinc-200/60 mt-1">
+                        {/* Edit & Delete Controls */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditModal(c)}
+                            className="py-1.5 px-3 bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-700 text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-sm"
+                            title="Edit complaint details"
+                          >
+                            <span>✏️</span> Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteComplaint(c._id)}
+                            className="py-1.5 px-3 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-sm"
+                            title="Delete complaint ticket"
+                          >
+                            <span>🗑️</span> Delete
+                          </button>
                         </div>
-                      )}
+
+                        {/* Management Controls */}
+                        {isManagement && (
+                          <div className="flex flex-wrap gap-2 justify-end">
+                            {!isOngoing && !isResolved && (
+                              <button
+                                onClick={() => openOngoingModal(c)}
+                                className="py-1.5 px-3.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5"
+                              >
+                                <span>🛠️</span> Mark Work Ongoing
+                              </button>
+                            )}
+
+                            {isOngoing && (
+                              <button
+                                onClick={() => openOngoingModal(c)}
+                                className="py-1.5 px-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold rounded-xl transition"
+                              >
+                                ✏️ Update Progress
+                              </button>
+                            )}
+
+                            {!isResolved && (
+                              <button
+                                onClick={() => openResolveModal(c)}
+                                className="py-1.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5"
+                              >
+                                <span>✅</span> Mark Work Completed
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -590,7 +704,7 @@ export default function ComplaintsPage() {
                 <span className="text-2xl">🛠️</span>
                 <div>
                   <h3 className="text-base font-black text-blue-950">Mark Work Ongoing & Assign Staff</h3>
-                  <p className="text-[11px] text-zinc-500">Ticket: {activeOngoingModal.title}</p>
+                  <p className="text-[11px] text-zinc-500">Ticket: {activeOngoingModal.title || activeOngoingModal.description || "Facility Issue"}</p>
                 </div>
               </div>
 
@@ -654,7 +768,7 @@ export default function ComplaintsPage() {
                 <span className="text-2xl">✅</span>
                 <div>
                   <h3 className="text-base font-black text-emerald-950">Mark Work Completed</h3>
-                  <p className="text-[11px] text-zinc-500">Ticket: {activeResolveModal.title}</p>
+                  <p className="text-[11px] text-zinc-500">Ticket: {activeResolveModal.title || activeResolveModal.description || "Facility Issue"}</p>
                 </div>
               </div>
 
@@ -685,6 +799,136 @@ export default function ComplaintsPage() {
                     className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow"
                   >
                     {loading ? "Resolving..." : "Complete & Close Ticket"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Complaint Modal */}
+        {activeEditModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-lg w-full border border-emerald-100 shadow-2xl p-6 relative space-y-4 max-h-[90vh] overflow-y-auto">
+              <button
+                onClick={() => setActiveEditModal(null)}
+                className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-700 text-lg"
+              >
+                ✕
+              </button>
+
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">✏️</span>
+                <div>
+                  <h3 className="text-base font-black text-zinc-900">Edit Complaint Ticket</h3>
+                  <p className="text-[11px] text-zinc-500">Update issue details or attachments</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveEdit} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-600 mb-1">Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-semibold"
+                    placeholder="e.g. WiFi not connecting in Library"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Category *</label>
+                    <select
+                      value={editCategory}
+                      onChange={(e) => setEditCategory(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-semibold"
+                    >
+                      <option value="wifi">📡 Wi-Fi & Network</option>
+                      <option value="washroom">🚻 Washroom Sanitation</option>
+                      <option value="projector">📽️ Projector & Lab AV</option>
+                      <option value="fan">🌀 Classroom Fan</option>
+                      <option value="light">💡 Tube Light & Switch</option>
+                      <option value="cleaning">🧹 Floor Cleaning</option>
+                      <option value="water_cooler">🚰 Water Dispenser</option>
+                      <option value="electrical">🔌 Electrical Socket</option>
+                      <option value="lab_equipment">🔬 Lab Equipment</option>
+                      <option value="ragging">🛡️ Campus Anti-Ragging</option>
+                      <option value="other">📦 Other Issue</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Location *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editLocation}
+                      onChange={(e) => setEditLocation(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-semibold"
+                      placeholder="e.g. Block B, 2nd Floor"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-600 mb-1">Issue Description *</label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-medium"
+                    placeholder="Provide specific details of what needs maintenance..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-600 mb-1">Photo Attachment (Optional)</label>
+                  {editExistingImageUrl && !editPhotoFile && (
+                    <div className="flex items-center gap-3 mb-2 p-2 bg-zinc-50 border border-zinc-200 rounded-xl">
+                      <img src={editExistingImageUrl} alt="Current Attachment" className="w-12 h-12 object-cover rounded-lg border border-zinc-200" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-bold text-zinc-700 truncate">Current Photo Attached</p>
+                        <p className="text-[10px] text-zinc-400">Click remove if you wish to detach</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditExistingImageUrl("")}
+                        className="text-xs text-rose-600 font-bold hover:underline px-2 py-1 bg-rose-50 rounded-lg"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    ref={editFileInputRef}
+                    accept="image/*"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditPhotoFile(e.target.files[0]);
+                      }
+                    }}
+                    className="w-full text-xs text-zinc-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveEditModal(null)}
+                    className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editSubmitting}
+                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow"
+                  >
+                    {editSubmitting ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
               </form>
