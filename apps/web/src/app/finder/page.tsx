@@ -153,11 +153,13 @@ export default function FinderPage() {
       if (token) headers["Authorization"] = `Bearer ${token}`;
       const response = await fetch(`${BACKEND_URL}/api/locations`, { headers });
       const data = await response.json();
-      if (data.success && data.locations) {
+      if (data.success && Array.isArray(data.locations)) {
         setLocations(data.locations);
+      } else if (Array.isArray(data)) {
+        setLocations(data);
       }
     } catch (err) {
-      console.error("Error fetching locations:", err);
+      console.warn("Notice: Locations fetch warning:", err);
     }
   };
 

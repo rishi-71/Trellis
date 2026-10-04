@@ -14,6 +14,9 @@ router.post("/:id/register", verifyToken, verifyStudent, eventController.registe
 router.post("/", verifyToken, verifyFacultyOrAdmin, eventController.createEvent);
 router.get("/:id/participants", verifyToken, verifyFacultyOrAdmin, eventController.getEventParticipants);
 router.post("/:id/attendance", verifyToken, verifyFacultyOrAdmin, eventController.markAttendance);
+router.post("/:id/winners", verifyToken, verifyFacultyOrAdmin, eventController.announceEventWinners);
+router.get("/:id/winners/csv", verifyToken, verifyFacultyOrAdmin, eventController.downloadWinnersCSV);
+router.put("/:id/poster", verifyToken, verifyFacultyOrAdmin, eventController.updateEventPoster);
 router.delete("/:id", verifyToken, verifyFacultyOrAdmin, eventController.deleteEvent);
 
 module.exports = router;

@@ -23,6 +23,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [facultyDepartment, setFacultyDepartment] = useState("");
 
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [lostFoundCounts, setLostFoundCounts] = useState<{
+    notFoundCount: number;
+    foundUnclaimedCount: number;
+    claimedCount: number;
+    myLostFoundReady: number;
+    hasUrgentFoundAlert: boolean;
+  }>({
+    notFoundCount: 0,
+    foundUnclaimedCount: 0,
+    claimedCount: 0,
+    myLostFoundReady: 0,
+    hasUrgentFoundAlert: false
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -74,7 +87,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             }
           }
         })
-        .catch((err) => console.error("Profile sync failed in DashboardLayout:", err));
+        .catch((err) => {
+          // Gracefully handle server offline or network blip
+          console.warn("Notice: Backend not reachable yet for profile sync:", err?.message || err);
+        });
 
       // Fetch unread notifications
       fetch(`${BACKEND_URL}/api/notifications/unread-count`, {
@@ -83,6 +99,24 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         .then((res) => res.json())
         .then((data) => {
           if (data.success) setUnreadNotifCount(data.count || 0);
+        })
+        .catch(() => {});
+
+      // Fetch Lost & Found notification status counts (Student & Faculty)
+      fetch(`${BACKEND_URL}/api/lostfound/summary`, {
+        headers: { Authorization: `Bearer ${savedToken}` }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.summary) {
+            setLostFoundCounts({
+              notFoundCount: data.summary.notFoundCount || 0,
+              foundUnclaimedCount: data.summary.foundUnclaimedCount || 0,
+              claimedCount: data.summary.claimedCount || 0,
+              myLostFoundReady: data.summary.myLostFoundReady || 0,
+              hasUrgentFoundAlert: Boolean(data.summary.hasUrgentFoundAlert)
+            });
+          }
         })
         .catch(() => {});
     }
@@ -110,13 +144,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     ? "🎓 Student Records & Verifications"
     : "👥 Career Hub";
 
+  const eventsMenuTitle = userRole === "student"
+    ? "📢 Notices and Events"
+    : "📢 Notices and Event Management";
+
   const menuItems = [
     { name: "🏠 OS Desktop", path: "/#desktop" },
     { name: "📍 Campus Finder", path: "/finder" },
     { name: "💼 Placements Board", path: "/placements" },
     { name: careerMenuTitle, path: "/career" },
     { name: "🔬 Sensor Renting", path: "/sensors" },
-    { name: "📢 Notices and Event Management", path: "/events" },
+    { name: eventsMenuTitle, path: "/events" },
     { name: "🔧 Service Complaints", path: "/complaints" },
     { name: "📦 Lost & Found", path: "/lostfound" },
     { name: "🚨 SOS Security", path: "/sos" },
@@ -185,12 +223,52 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     : "text-zinc-600 hover:bg-emerald-50/50 hover:text-emerald-800"
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <span>{item.name}</span>
-                  {hasBadge && (
-                    <span className="px-1.5 py-0.5 text-[10px] font-black bg-emerald-600 text-white rounded-full">
-                      {unreadNotifCount}
-                    </span>
+                <div className="flex items-center justify-between w-full gap-2">
+                  <div className="flex items-center gap-2">
+                    <span>{item.name}</span>
+                    {hasBadge && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-black bg-emerald-600 text-white rounded-full">
+                        {unreadNotifCount}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Lost & Found Notification Indicators (Student & Faculty) */}
+                  {item.path === "/lostfound" && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      {lostFoundCounts.hasUrgentFoundAlert && (
+                        <span
+                          title="Your reported lost item has been FOUND! Ready for pickup at management."
+                          className="px-1.5 py-0.5 text-[9px] font-black bg-amber-400 text-amber-950 rounded-md animate-pulse shadow-sm"
+                        >
+                          🎉 Found!
+                        </span>
+                      )}
+                      {lostFoundCounts.notFoundCount > 0 && (
+                        <span
+                          title={`${lostFoundCounts.notFoundCount} items still lost (not found yet)`}
+                          className="px-1.5 py-0.5 text-[9px] font-black bg-rose-500 text-white rounded-md shadow-xs"
+                        >
+                          🔴 {lostFoundCounts.notFoundCount}
+                        </span>
+                      )}
+                      {lostFoundCounts.foundUnclaimedCount > 0 && (
+                        <span
+                          title={`${lostFoundCounts.foundUnclaimedCount} items found awaiting claim/pickup`}
+                          className="px-1.5 py-0.5 text-[9px] font-black bg-amber-500 text-white rounded-md shadow-xs"
+                        >
+                          🟡 {lostFoundCounts.foundUnclaimedCount}
+                        </span>
+                      )}
+                      {lostFoundCounts.claimedCount > 0 && (
+                        <span
+                          title={`${lostFoundCounts.claimedCount} items successfully claimed`}
+                          className="px-1.5 py-0.5 text-[9px] font-black bg-emerald-600 text-white rounded-md shadow-xs"
+                        >
+                          🟢 {lostFoundCounts.claimedCount}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
                 {isGated && !token && <span className="text-xs">🔒</span>}

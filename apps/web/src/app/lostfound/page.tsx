@@ -25,7 +25,7 @@ export default function LostFoundPage() {
   const [itemImageFile, setItemImageFile] = useState<File | null>(null);
 
   // Filter
-  const [selectedTagFilter, setSelectedTagFilter] = useState<"all" | "lost" | "found" | "ready_for_pickup" | "claimed">("all");
+  const [selectedTagFilter, setSelectedTagFilter] = useState<"all" | "lost" | "found" | "ready_for_pickup" | "claimed" | "my_items">("all");
 
   // Management Pickup Modal State
   const [selectedItemForPickup, setSelectedItemForPickup] = useState<any | null>(null);
@@ -369,13 +369,44 @@ export default function LostFoundPage() {
 
   const isManagement = userRole === "management" || userRole === "admin";
 
+  // Color-coded status notifications (Student & Faculty)
+  // 1. Red: Items still missing / not found yet
+  const notFoundItems = lostFoundItems.filter((i) => i.type === "lost" && i.status === "open");
+  const notFoundCount = notFoundItems.length;
+
+  // 2. Amber: Found and ready at office, awaiting owner claim
+  const foundUnclaimedItems = lostFoundItems.filter(
+    (i) => i.status === "ready_for_pickup" || (i.type === "found" && i.status === "awaiting_handover")
+  );
+  const foundUnclaimedCount = foundUnclaimedItems.length;
+
+  // 3. Green: Successfully claimed and returned to owner
+  const claimedItems = lostFoundItems.filter((i) => i.status === "claimed");
+  const claimedCount = claimedItems.length;
+
+  // Personal items for current logged-in student or faculty
+  const myItems = lostFoundItems.filter((i) => {
+    if (!userEmail) return false;
+    const repEmail = typeof i.reporter === "object" && i.reporter !== null ? i.reporter.email : "";
+    return repEmail && repEmail.toLowerCase() === userEmail.toLowerCase();
+  });
+  const myFoundReadyItems = myItems.filter((i) => i.type === "lost" && i.status === "ready_for_pickup");
+  const myStillSearchingItems = myItems.filter((i) => i.type === "lost" && i.status === "open");
+
   // Filter items
   const filteredItems = lostFoundItems.filter((item) => {
     if (selectedTagFilter === "all") return true;
-    if (selectedTagFilter === "lost") return item.type === "lost";
+    if (selectedTagFilter === "lost") return item.type === "lost" && item.status === "open";
     if (selectedTagFilter === "found") return item.type === "found";
-    if (selectedTagFilter === "ready_for_pickup") return item.status === "ready_for_pickup";
+    if (selectedTagFilter === "ready_for_pickup") {
+      return item.status === "ready_for_pickup" || (item.type === "found" && item.status === "awaiting_handover");
+    }
     if (selectedTagFilter === "claimed") return item.status === "claimed";
+    if (selectedTagFilter === "my_items") {
+      if (!userEmail) return false;
+      const repEmail = typeof item.reporter === "object" && item.reporter !== null ? item.reporter.email : "";
+      return repEmail && repEmail.toLowerCase() === userEmail.toLowerCase();
+    }
     return true;
   });
 
@@ -396,17 +427,130 @@ export default function LostFoundPage() {
             <p className="text-xs text-zinc-500 mt-1">
               {isManagement
                 ? "Manage item handovers, log received items, schedule pickup dates, and verify owner claims."
-                : "Report lost possessions with purchase proof, register found items, and schedule pickup from the Management Office."}
+                : "Report lost possessions, track real-time status (Still Missing vs. Found & Claimed), and coordinate pickup with Management."}
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={fetchLostFoundItems}
-              className="py-2 px-3.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+              className="py-2 px-3.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
             >
               <span>🔄</span> Refresh Feed
             </button>
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* PERSONAL NOTIFICATION ALERT BANNER FOR STUDENT & FACULTY */}
+        {/* ============================================================== */}
+        {myFoundReadyItems.length > 0 && (
+          <div className="bg-gradient-to-r from-amber-100 via-amber-50 to-emerald-50 border-2 border-amber-300 rounded-3xl p-5 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3">
+              <span className="text-3xl">🎉</span>
+              <div>
+                <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider">
+                  Action Required: Your Reported Lost Item Has Been FOUND!
+                </h4>
+                <p className="text-xs text-amber-900 mt-1 leading-relaxed font-medium">
+                  Great news! <strong>{myFoundReadyItems.length}</strong> of your reported lost possession(s) have been found and received by Campus Management.
+                  Status: <strong>Found & Ready for Pickup (Awaiting Claim)</strong>. Please visit Room 102 with your ID to collect.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {myFoundReadyItems.map((fi: any) => (
+                    <span
+                      key={fi._id}
+                      className="text-[10px] font-black bg-white px-2.5 py-1 rounded-lg border border-amber-300 text-amber-950 shadow-xs"
+                    >
+                      📍 {fi.title} - Pickup at {fi.pickupLocation || "Room 102"} {fi.pickupDate ? `(by ${new Date(fi.pickupDate).toLocaleDateString()})` : ""}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setSelectedTagFilter("my_items")}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow whitespace-nowrap cursor-pointer transition shrink-0"
+            >
+              View My Found Items
+            </button>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* COLOR-CODED STATUS NOTIFICATION OVERVIEW CARDS */}
+        {/* ============================================================== */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Card 1: 🔴 Red - Still Missing / Searching */}
+          <div
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "lost" ? "all" : "lost")}
+            className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex flex-col justify-between gap-2.5 ${
+              selectedTagFilter === "lost"
+                ? "bg-rose-100 border-rose-400 ring-2 ring-rose-200"
+                : "bg-rose-50/80 border-rose-200 hover:bg-rose-100/60"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-rose-800 bg-rose-200/70 px-2.5 py-0.5 rounded-full">
+                🔴 Still Missing
+              </span>
+              <span className="text-xl">🔍</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-rose-950">{notFoundCount}</span>
+              <span className="text-xs font-bold text-rose-800">Items Still Missing</span>
+            </div>
+            <p className="text-[11px] text-rose-700 leading-tight">
+              Reported lost by students or faculty that have <strong>not been found yet</strong>. Campus search is active.
+            </p>
+          </div>
+
+          {/* Card 2: 🟡 Amber - Found & Awaiting Claim */}
+          <div
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "ready_for_pickup" ? "all" : "ready_for_pickup")}
+            className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex flex-col justify-between gap-2.5 ${
+              selectedTagFilter === "ready_for_pickup"
+                ? "bg-amber-100 border-amber-400 ring-2 ring-amber-200"
+                : "bg-amber-50/80 border-amber-200 hover:bg-amber-100/60"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 bg-amber-200/70 px-2.5 py-0.5 rounded-full">
+                🟡 Found (Awaiting Claim)
+              </span>
+              <span className="text-xl">📦</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-amber-950">{foundUnclaimedCount}</span>
+              <span className="text-xs font-bold text-amber-800">Found & Ready for Pickup</span>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-tight">
+              Possessions <strong>found & stored at office</strong> waiting for rightful owners to claim.
+            </p>
+          </div>
+
+          {/* Card 3: 🟢 Green - Claimed & Returned */}
+          <div
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "claimed" ? "all" : "claimed")}
+            className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex flex-col justify-between gap-2.5 ${
+              selectedTagFilter === "claimed"
+                ? "bg-emerald-100 border-emerald-400 ring-2 ring-emerald-200"
+                : "bg-emerald-50/80 border-emerald-200 hover:bg-emerald-100/60"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-900 bg-emerald-200/70 px-2.5 py-0.5 rounded-full">
+                🟢 Claimed & Returned
+              </span>
+              <span className="text-xl">✅</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-emerald-950">{claimedCount}</span>
+              <span className="text-xs font-bold text-emerald-800">Successfully Returned</span>
+            </div>
+            <p className="text-[11px] text-emerald-800 leading-tight">
+              Items verified and <strong>claimed by owners</strong>. Successfully resolved cases.
+            </p>
           </div>
         </div>
 
@@ -577,44 +721,46 @@ export default function LostFoundPage() {
               <div className="flex flex-wrap bg-zinc-100 rounded-xl p-1 text-[10px] font-bold">
                 <button
                   onClick={() => setSelectedTagFilter("all")}
-                  className={`px-2.5 py-1.5 rounded-lg transition-all ${
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                     selectedTagFilter === "all" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
                   }`}
                 >
-                  All
+                  All ({lostFoundItems.length})
                 </button>
                 <button
                   onClick={() => setSelectedTagFilter("lost")}
-                  className={`px-2.5 py-1.5 rounded-lg transition-all ${
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                     selectedTagFilter === "lost" ? "bg-white text-rose-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
                   }`}
                 >
-                  🔴 Lost
-                </button>
-                <button
-                  onClick={() => setSelectedTagFilter("found")}
-                  className={`px-2.5 py-1.5 rounded-lg transition-all ${
-                    selectedTagFilter === "found" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
-                  }`}
-                >
-                  🟢 Found
+                  🔴 Still Missing ({notFoundCount})
                 </button>
                 <button
                   onClick={() => setSelectedTagFilter("ready_for_pickup")}
-                  className={`px-2.5 py-1.5 rounded-lg transition-all ${
-                    selectedTagFilter === "ready_for_pickup" ? "bg-white text-teal-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    selectedTagFilter === "ready_for_pickup" ? "bg-white text-amber-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
                   }`}
                 >
-                  📦 Ready for Pickup
+                  🟡 Found / Unclaimed ({foundUnclaimedCount})
                 </button>
                 <button
                   onClick={() => setSelectedTagFilter("claimed")}
-                  className={`px-2.5 py-1.5 rounded-lg transition-all ${
-                    selectedTagFilter === "claimed" ? "bg-white text-zinc-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    selectedTagFilter === "claimed" ? "bg-white text-emerald-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
                   }`}
                 >
-                  ⚪ Claimed
+                  🟢 Claimed ({claimedCount})
                 </button>
+                {myItems.length > 0 && (
+                  <button
+                    onClick={() => setSelectedTagFilter("my_items")}
+                    className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      selectedTagFilter === "my_items" ? "bg-white text-indigo-800 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                    }`}
+                  >
+                    👤 My Reported ({myItems.length})
+                  </button>
+                )}
               </div>
             </div>
 
@@ -635,37 +781,44 @@ export default function LostFoundPage() {
                       className="border border-zinc-200 rounded-2xl p-5 bg-zinc-50 hover:bg-zinc-100/60 transition-all flex flex-col justify-between gap-4 shadow-sm"
                     >
                       <div className="space-y-2.5">
-                        {/* Top Badge Row */}
+                        {/* Top Badge Row with explicit Color-Coding */}
                         <div className="flex items-center flex-wrap gap-2">
                           <span
                             className={`text-[9px] uppercase font-black tracking-wider px-2.5 py-1 rounded-md ${
                               item.type === "lost" ? "bg-rose-100 text-rose-800 border border-rose-200" : "bg-emerald-100 text-emerald-800 border border-emerald-200"
                             }`}
                           >
-                            {item.type === "lost" ? "🔴 Lost Item" : "🟢 Found Item"}
+                            {item.type === "lost" ? "🔴 Lost Report" : "🟢 Found Item"}
                           </span>
 
-                          {isAwaitingHandover && (
-                            <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md flex items-center gap-1">
-                              <span>⏳</span> Awaiting Office Handover
-                            </span>
-                          )}
-
-                          {isReadyForPickup && (
-                            <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md flex items-center gap-1">
-                              <span>📦</span> Ready for Pickup at Office
-                            </span>
-                          )}
-
-                          {isClaimed && (
-                            <span className="bg-zinc-200 text-zinc-700 border border-zinc-300 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md flex items-center gap-1">
-                              <span>✅</span> Claimed & Handed Over
-                            </span>
-                          )}
-
+                          {/* Status 1: 🔴 Still Missing / Searching */}
                           {item.type === "lost" && item.status === "open" && (
-                            <span className="bg-rose-50 text-rose-800 border border-rose-200 text-[10px] font-bold px-2 py-0.5 rounded-md">
-                              Open Search
+                            <span className="bg-rose-100 text-rose-900 border border-rose-300 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                              <span>🔴</span>
+                              <span>Still Missing</span>
+                            </span>
+                          )}
+
+                          {/* Status 2: 🟡 Found (Ready for Pickup) */}
+                          {isReadyForPickup && (
+                            <span className="bg-amber-100 text-amber-950 border border-amber-300 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md flex items-center gap-1 shadow-xs">
+                              <span>🟡</span>
+                              <span>Found (Ready for Pickup) - Room {item.pickupLocation || "102"}</span>
+                            </span>
+                          )}
+
+                          {isAwaitingHandover && (
+                            <span className="bg-amber-50 text-amber-900 border border-amber-200 text-[10px] font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                              <span>⏳</span>
+                              <span>Found (Awaiting Office Handover)</span>
+                            </span>
+                          )}
+
+                          {/* Status 3: 🟢 Claimed & Returned */}
+                          {isClaimed && (
+                            <span className="bg-emerald-100 text-emerald-950 border border-emerald-300 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md flex items-center gap-1 shadow-xs">
+                              <span>🟢</span>
+                              <span>Claimed & Returned ({item.claimedBy || "Verified Owner"})</span>
                             </span>
                           )}
                         </div>

@@ -139,5 +139,5 @@ app.get("/api/health", (req, res) => {
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`Trellis backend running on port ${PORT}`);
+  console.log(`Trellis backend running on port ${PORT} [ACTIVE]`);
 });

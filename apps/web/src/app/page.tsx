@@ -53,6 +53,12 @@ export default function Home() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAuthRequiredModalOpen, setIsAuthRequiredModalOpen] = useState(false);
+  const [lostFoundSummary, setLostFoundSummary] = useState<{
+    notFoundCount: number;
+    foundUnclaimedCount: number;
+    claimedCount: number;
+    hasUrgentFoundAlert: boolean;
+  } | null>(null);
 
   const carouselSlides = [
     {
@@ -89,7 +95,7 @@ export default function Home() {
 
   const desktopApps = [
     { name: "Campus Finder", path: "/finder", desc: "Interactive maps, buildings, rooms, facilities and indoor navigation to help you find anything across the campus.", bg: "bg-emerald-600", icon: "📍", illus: "/images/illus_finder.jpg", badge: "SMART CAMPUS SOLUTION" },
-    { name: "Notices and Event Management", path: "/events", desc: "Explore upcoming events, publish notices, register for workshops, seminars, and manage campus activities.", bg: "bg-teal-600", icon: "📢", illus: "/images/illus_events.jpg" },
+    { name: userRole === "student" ? "Notices and Events" : "Notices and Event Management", path: "/events", desc: "Explore upcoming events, publish notices, register for workshops, seminars, and manage campus activities.", bg: "bg-teal-600", icon: "📢", illus: "/images/illus_events.jpg" },
     { name: "Career Profile", path: "/career", desc: "Build your professional identity by showcasing your skills, projects, certifications and achievements.", bg: "bg-emerald-700", icon: "👥", illus: "/images/illus_career.jpg" },
     { name: "Sensor IoT", path: "/sensors", desc: "Real-time monitoring of campus environment sensors like temperature, humidity, air quality and get instant alerts for any anomalies.", bg: "bg-emerald-800", icon: "🔬", illus: "/images/illus_sensors.jpg" },
     { name: "Placement", path: "/placements", desc: "Register for placements, upload documents and get automatically matched with eligible job opportunities posted by companies.", bg: "bg-teal-700", icon: "💼", illus: "/images/illus_placement.jpg" },
@@ -130,6 +136,17 @@ export default function Home() {
           }
         })
         .catch((err) => console.error("Mount profile sync failed:", err));
+
+      fetch(`${BACKEND_URL}/api/lostfound/summary`, {
+        headers: { Authorization: `Bearer ${savedToken}` }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.summary) {
+            setLostFoundSummary(data.summary);
+          }
+        })
+        .catch(() => {});
     }
   }, []);
 
@@ -465,6 +482,37 @@ export default function Home() {
                               <p className="text-xs text-zinc-500 leading-relaxed max-w-lg pt-1">
                                 {displayDesc}
                               </p>
+                              {app.path === "/lostfound" && lostFoundSummary && (
+                                <div className="flex flex-wrap items-center gap-2 pt-2.5">
+                                  {lostFoundSummary.hasUrgentFoundAlert && (
+                                    <span className="px-2.5 py-1 text-[9px] font-black rounded-lg bg-amber-400 text-amber-950 animate-pulse shadow-xs flex items-center gap-1">
+                                      <span>🎉</span>
+                                      <span>Your Item Found! Ready for Pickup</span>
+                                    </span>
+                                  )}
+                                  <span
+                                    title="Items reported lost that have not been found yet"
+                                    className="px-2.5 py-1 text-[9px] font-black rounded-lg bg-rose-100 text-rose-900 border border-rose-200 flex items-center gap-1 shadow-xs"
+                                  >
+                                    <span>🔴</span>
+                                    <span>{lostFoundSummary.notFoundCount} Still Missing</span>
+                                  </span>
+                                  <span
+                                    title="Items found and ready at office, awaiting claim"
+                                    className="px-2.5 py-1 text-[9px] font-black rounded-lg bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1 shadow-xs"
+                                  >
+                                    <span>🟡</span>
+                                    <span>{lostFoundSummary.foundUnclaimedCount} Found (Awaiting Claim)</span>
+                                  </span>
+                                  <span
+                                    title="Items claimed and successfully returned to owner"
+                                    className="px-2.5 py-1 text-[9px] font-black rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-200 flex items-center gap-1 shadow-xs"
+                                  >
+                                    <span>🟢</span>
+                                    <span>{lostFoundSummary.claimedCount} Claimed</span>
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center gap-6 shrink-0 self-end md:self-center">

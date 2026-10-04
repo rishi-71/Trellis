@@ -1,6 +1,7 @@
 const Event = require("../models/Event");
 const StudentProfile = require("../models/StudentProfile");
 const User = require("../models/User");
+const Notice = require("../models/Notice");
 
 // Create event (Faculty / Admin only)
 exports.createEvent = async (req, res) => {
@@ -249,6 +250,173 @@ exports.deleteEvent = async (req, res) => {
 
     await Event.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: "Event deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Announce Event Winners and post to Notices (Faculty / Admin only)
+exports.announceEventWinners = async (req, res) => {
+  try {
+    const { winners, customNoticeContent } = req.body;
+    const event = await Event.findById(req.params.id);
+
+    if (!event) {
+      return res.status(404).json({ success: false, message: "Event not found" });
+    }
+
+    const isOrganizer = event.organizer && event.organizer.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+    const isFaculty = req.user.role === "faculty";
+
+    if (!isOrganizer && !isAdmin && !isFaculty) {
+      return res.status(403).json({ success: false, message: "Access restricted to event faculty and administrators" });
+    }
+
+    if (!Array.isArray(winners) || winners.length === 0) {
+      return res.status(400).json({ success: false, message: "Please provide at least one winner or runner-up" });
+    }
+
+    // Standardize winner records
+    event.winners = winners.map((w, idx) => ({
+      position: w.position || (idx === 0 ? "Winner (1st Place)" : idx === 1 ? "Runner Up (2nd Place)" : `${idx + 1}th Place`),
+      student: w.student || null,
+      studentName: (w.studentName || "").trim(),
+      rollNumber: (w.rollNumber || "").trim(),
+      branch: (w.branch || "").trim(),
+      semester: parseInt((w.semester || 1).toString()),
+      email: (w.email || "").trim(),
+      contact: (w.contact || "").trim(),
+      prize: (w.prize || "").trim()
+    }));
+    event.resultsAnnounced = true;
+    event.resultsAnnouncedAt = new Date();
+
+    // Format announcement notice
+    const winnerItems = event.winners.map(w => {
+      let icon = "🎖️";
+      const posLower = w.position.toLowerCase();
+      if (posLower.includes("winner") || posLower.includes("1st")) icon = "🥇";
+      else if (posLower.includes("runner up") || posLower.includes("2nd")) icon = "🥈";
+      else if (posLower.includes("3rd")) icon = "🥉";
+
+      let detail = `* ${icon} **${w.position}:** ${w.studentName}`;
+      if (w.rollNumber) detail += ` (Roll No: ${w.rollNumber})`;
+      if (w.branch) detail += ` - ${w.branch}`;
+      if (w.prize) detail += ` | Prize: ${w.prize}`;
+      return detail;
+    }).join("\n");
+
+    const noticeContent = customNoticeContent || 
+      `We are delighted to officially announce the winners and runners-up for **"${event.title}"** held on ${new Date(event.date).toLocaleDateString()} at ${event.venue}.\n\n` +
+      `### 🏆 Results & Honors:\n${winnerItems}\n\n` +
+      `Heartiest congratulations to our top performers and runners-up for their exceptional effort! Special thanks to all students who participated.`;
+
+    // Create or update Notice in Notices collection
+    let notice;
+    if (event.resultsNoticeId) {
+      notice = await Notice.findById(event.resultsNoticeId);
+    }
+
+    if (notice) {
+      notice.title = `🏆 Event Results: ${event.title}`;
+      notice.content = noticeContent;
+      notice.category = "event";
+      await notice.save();
+    } else {
+      notice = new Notice({
+        title: `🏆 Event Results: ${event.title}`,
+        content: noticeContent,
+        category: "event",
+        author: req.user.id
+      });
+      await notice.save();
+      event.resultsNoticeId = notice._id;
+    }
+
+    await event.save();
+
+    res.json({
+      success: true,
+      message: "Event winners announced and published to Notices successfully!",
+      event,
+      notice
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Download Winners & Runners-Up CSV (Faculty / Admin only)
+exports.downloadWinnersCSV = async (req, res) => {
+  try {
+    const { type } = req.query; // 'all' or 'runner-up'
+    const event = await Event.findById(req.params.id);
+
+    if (!event) {
+      return res.status(404).json({ success: false, message: "Event not found" });
+    }
+
+    const isOrganizer = event.organizer && event.organizer.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+    const isFaculty = req.user.role === "faculty";
+
+    if (!isOrganizer && !isAdmin && !isFaculty) {
+      return res.status(403).json({ success: false, message: "Access restricted to faculty and administrators" });
+    }
+
+    let records = event.winners || [];
+    if (type === "runner-up") {
+      records = records.filter(w => (w.position || "").toLowerCase().includes("runner up") || (w.position || "").toLowerCase().includes("2nd"));
+    }
+
+    const headers = ["Position", "Student Name", "Roll / Enrollment No", "Branch", "Semester", "Email", "Contact", "Prize / Remarks", "Event Name", "Event Date"];
+    const rows = records.map(w => [
+      `"${w.position || ''}"`,
+      `"${w.studentName || ''}"`,
+      `"${w.rollNumber || ''}"`,
+      `"${w.branch || ''}"`,
+      w.semester || 1,
+      `"${w.email || ''}"`,
+      `"${w.contact || ''}"`,
+      `"${w.prize || ''}"`,
+      `"${event.title || ''}"`,
+      `"${new Date(event.date).toLocaleDateString()}"`
+    ]);
+
+    const csvData = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const filename = type === "runner-up" 
+      ? `${event.title.replace(/[^a-zA-Z0-9]/g, "_")}_runners_up.csv`
+      : `${event.title.replace(/[^a-zA-Z0-9]/g, "_")}_winners_results.csv`;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.status(200).send(csvData);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Update event poster (Faculty / Admin only)
+exports.updateEventPoster = async (req, res) => {
+  try {
+    const { posterUrl } = req.body;
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ success: false, message: "Event not found" });
+    }
+
+    if (req.user.role === "faculty") {
+      const organizerId = event.organizer ? event.organizer.toString() : null;
+      if (organizerId && organizerId !== req.user.id) {
+        return res.status(403).json({ success: false, message: "You can only update posters for events you organized" });
+      }
+    }
+
+    event.posterUrl = posterUrl || "";
+    await event.save();
+
+    res.json({ success: true, message: "Event poster updated successfully", event });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
