@@ -368,6 +368,45 @@ exports.getAllLostFound = async (req, res) => {
   }
 };
 
+exports.getLostFoundSummary = async (req, res) => {
+  try {
+    const items = await LostFound.find({});
+
+    const notFoundCount = items.filter(i => i.type === "lost" && i.status === "open").length;
+    const foundUnclaimedCount = items.filter(
+      i => i.status === "ready_for_pickup" || (i.type === "found" && i.status === "awaiting_handover")
+    ).length;
+    const claimedCount = items.filter(i => i.status === "claimed").length;
+
+    const userId = req.user ? (req.user._id || req.user.id)?.toString() : "";
+    let myLostNotFound = 0;
+    let myLostFoundReady = 0;
+
+    if (userId) {
+      items.forEach(i => {
+        const reporterId = i.reporter ? (i.reporter._id || i.reporter)?.toString() : "";
+        if (reporterId === userId) {
+          if (i.type === "lost" && i.status === "open") myLostNotFound++;
+          if (i.type === "lost" && i.status === "ready_for_pickup") myLostFoundReady++;
+        }
+      });
+    }
+
+    const summary = {
+      notFoundCount,
+      foundUnclaimedCount,
+      claimedCount,
+      myLostNotFound,
+      myLostFoundReady,
+      hasUrgentFoundAlert: myLostFoundReady > 0
+    };
+
+    res.json({ success: true, summary });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 exports.reportLostFound = async (req, res) => {
   try {
     const { title, type, description, location, contact, contactDetails, proofUrl, imageUrl } = req.body;
