@@ -59,5 +59,8 @@ router.post("/lostfound", verifyToken, campusController.reportLostFound);
 router.put("/lostfound/:id/claim", verifyToken, campusController.claimLostFound);
 router.patch("/lostfound/:id/management-status", verifyToken, verifyManagementOrFacultyOrAdmin, campusController.updateLostFoundStatus);
 router.put("/lostfound/:id/status", verifyToken, verifyManagementOrFacultyOrAdmin, campusController.updateLostFoundStatus);
+router.put("/lostfound/:id", verifyToken, campusController.updateLostFound);
+router.patch("/lostfound/:id", verifyToken, campusController.updateLostFound);
+router.delete("/lostfound/:id", verifyToken, campusController.deleteLostFound);
 
 module.exports = router;

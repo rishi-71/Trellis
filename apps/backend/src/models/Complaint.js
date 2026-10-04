@@ -2,8 +2,8 @@ const mongoose = require("mongoose");
 
 const ComplaintSchema = new mongoose.Schema({
   student: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  title: { type: String, required: true },
-  location: { type: String, required: true },
+  title: { type: String, required: true, default: "Facility Issue" },
+  location: { type: String, required: true, default: "Campus Premises" },
   category: { 
     type: String, 
     enum: ['washroom', 'wifi', 'projector', 'fan', 'light', 'ragging', 'cleaning', 'electrical', 'lab_equipment', 'water_cooler', 'other'], 

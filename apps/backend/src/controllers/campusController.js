@@ -455,47 +455,60 @@ exports.claimLostFound = async (req, res) => {
   }
 };
 
-exports.getLostFoundSummary = async (req, res) => {
+exports.updateLostFound = async (req, res) => {
   try {
-    const items = await LostFound.find({}).populate("reporter", "email");
-    const userId = req.user?.id ? req.user.id.toString() : null;
+    const { id } = req.params;
+    const { title, type, description, location, contact, contactDetails, proofUrl, imageUrl } = req.body;
 
-    // 1. Not Found Yet (Red): items of type 'lost' with status 'open'
-    const notFoundCount = items.filter(i => i.type === "lost" && i.status === "open").length;
+    const item = await LostFound.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Lost & Found item not found." });
+    }
 
-    // 2. Found & Awaiting Claim (Amber): items found or ready for pickup but not yet claimed
-    const foundUnclaimedCount = items.filter(i => i.status === "ready_for_pickup" || (i.type === "found" && i.status === "awaiting_handover")).length;
+    const isOwner = item.reporter.toString() === req.user.id;
+    const isStaff = ['management', 'admin'].includes(req.user.role);
+    if (!isOwner && !isStaff) {
+      return res.status(403).json({ success: false, message: "Unauthorized to edit this item." });
+    }
 
-    // 3. Claimed (Green): items with status 'claimed'
-    const claimedCount = items.filter(i => i.status === "claimed").length;
+    if (title !== undefined) item.title = title;
+    if (type !== undefined) item.type = type;
+    if (description !== undefined) item.description = description;
+    if (location !== undefined) item.location = location;
+    if (contact !== undefined || contactDetails !== undefined) {
+      item.contact = contact || contactDetails;
+    }
+    if (proofUrl !== undefined) item.proofUrl = proofUrl;
+    if (imageUrl !== undefined) item.imageUrl = imageUrl;
 
-    // User-specific stats (for logged in Student or Faculty)
-    const myItems = userId
-      ? items.filter(i => i.reporter && ((i.reporter._id ? i.reporter._id.toString() : i.reporter.toString()) === userId))
-      : [];
-
-    const myLostNotFound = myItems.filter(i => i.type === "lost" && i.status === "open").length;
-    const myLostFoundReady = myItems.filter(i => i.type === "lost" && i.status === "ready_for_pickup").length;
-    const myLostClaimed = myItems.filter(i => i.type === "lost" && i.status === "claimed").length;
-
-    res.json({
-      success: true,
-      summary: {
-        notFoundCount,          // Red: Lost items still searching
-        foundUnclaimedCount,    // Amber: Found items awaiting owner claim
-        claimedCount,           // Green: Successfully claimed items
-        totalActive: notFoundCount + foundUnclaimedCount,
-        myLostNotFound,
-        myLostFoundReady,
-        myLostClaimed,
-        hasUrgentFoundAlert: myLostFoundReady > 0
-      }
-    });
+    await item.save();
+    res.json({ success: true, message: "Lost & Found item updated successfully", item });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
+exports.deleteLostFound = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const item = await LostFound.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Lost & Found item not found." });
+    }
+
+    const isOwner = item.reporter.toString() === req.user.id;
+    const isStaff = ['management', 'admin'].includes(req.user.role);
+    if (!isOwner && !isStaff) {
+      return res.status(403).json({ success: false, message: "Unauthorized to delete this item." });
+    }
+
+    await LostFound.findByIdAndDelete(id);
+    res.json({ success: true, message: "Lost & Found item deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 exports.getLocationDetail = async (req, res) => {
   try {
@@ -867,7 +880,16 @@ exports.updateProfile = async (req, res) => {
     if (name !== undefined) profile.name = name;
     if (rollNumber !== undefined) profile.rollNumber = rollNumber;
     if (branch !== undefined) profile.branch = branch;
-    if (graduationYear !== undefined) profile.graduationYear = graduationYear;
+    if (graduationYear !== undefined) {
+      profile.graduationYear = graduationYear;
+      profile.yop = graduationYear;
+    }
+    if (req.body.yop !== undefined) {
+      profile.yop = req.body.yop;
+      profile.graduationYear = req.body.yop;
+    }
+    if (req.body.yoa !== undefined) profile.yoa = req.body.yoa;
+    if (req.body.admissionYear !== undefined) profile.admissionYear = req.body.admissionYear;
     if (semester !== undefined) profile.semester = semester;
     if (bio !== undefined) profile.bio = bio;
     if (contact !== undefined) profile.contact = contact;

@@ -38,6 +38,22 @@ export default function LostFoundPage() {
   const [claimedByName, setClaimedByName] = useState("");
   const [claimNotes, setClaimNotes] = useState("");
 
+  // Edit Modal State
+  const [activeEditModal, setActiveEditModal] = useState<any | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editType, setEditType] = useState<"lost" | "found">("lost");
+  const [editDesc, setEditDesc] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editContact, setEditContact] = useState("");
+  const [editExistingImageUrl, setEditExistingImageUrl] = useState("");
+  const [editExistingProofUrl, setEditExistingProofUrl] = useState("");
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editProofFile, setEditProofFile] = useState<File | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const editImageInputRef = useRef<HTMLInputElement>(null);
+  const editProofInputRef = useRef<HTMLInputElement>(null);
+
   const proofInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -253,6 +269,99 @@ export default function LostFoundPage() {
       }
     } catch (err) {
       alert("Error updating item.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openEditModal = (item: any) => {
+    setActiveEditModal(item);
+    setEditTitle(item.title || "");
+    setEditType(item.type || "lost");
+    setEditDesc(item.description || "");
+    setEditLocation(item.location || "");
+    setEditContact(item.contact || "");
+    setEditExistingImageUrl(item.imageUrl || "");
+    setEditExistingProofUrl(item.proofUrl || "");
+    setEditImageFile(null);
+    setEditProofFile(null);
+    if (editImageInputRef.current) editImageInputRef.current.value = "";
+    if (editProofInputRef.current) editProofInputRef.current.value = "";
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeEditModal) return;
+    if (!editTitle || !editType || !editDesc || !editLocation || !editContact) {
+      alert("Please fill in Title, Type, Description, Location, and Contact details.");
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      let finalImageUrl = editExistingImageUrl;
+      if (editImageFile) {
+        finalImageUrl = await uploadFile(editImageFile);
+      }
+
+      let finalProofUrl = editExistingProofUrl;
+      if (editProofFile) {
+        finalProofUrl = await uploadFile(editProofFile);
+      }
+
+      const response = await fetch(`${BACKEND_URL}/api/lostfound/${activeEditModal._id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: editTitle,
+          type: editType,
+          description: editDesc,
+          location: editLocation,
+          contact: editContact,
+          imageUrl: finalImageUrl,
+          proofUrl: finalProofUrl
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert("Lost & Found report updated successfully!");
+        setActiveEditModal(null);
+        fetchLostFoundItems();
+      } else {
+        alert(data.message || "Failed to update report.");
+      }
+    } catch (err: any) {
+      alert("Error updating report: " + err.message);
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleDeleteItem = async (itemId: string) => {
+    if (!confirm("Are you sure you want to delete this Lost & Found report? This action cannot be undone.")) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/lostfound/${itemId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert("Lost & Found report deleted successfully!");
+        fetchLostFoundItems();
+      } else {
+        alert(data.message || "Failed to delete report.");
+      }
+    } catch (err: any) {
+      alert("Error deleting report: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -791,36 +900,57 @@ export default function LostFoundPage() {
                         )}
                       </div>
 
-                      {/* Management & User Actions */}
-                      <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-200/60 justify-end">
-                        {isManagement && !isClaimed && (
-                          <>
-                            {isAwaitingHandover && (
+                      {/* Actions: Edit, Delete, and Management Controls */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-zinc-200/60 mt-1">
+                        {/* Edit & Delete Actions */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditModal(item)}
+                            className="py-1.5 px-3 bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-700 text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-sm"
+                            title="Edit report details"
+                          >
+                            <span>✏️</span> Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteItem(item._id)}
+                            className="py-1.5 px-3 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-sm"
+                            title="Delete report"
+                          >
+                            <span>🗑️</span> Delete
+                          </button>
+                        </div>
+
+                        {/* Management & User Actions */}
+                        <div className="flex flex-wrap gap-2 justify-end">
+                          {isManagement && !isClaimed && (
+                            <>
+                              {isAwaitingHandover && (
+                                <button
+                                  onClick={() => openPickupModal(item)}
+                                  className="py-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5"
+                                >
+                                  <span>📥</span> Mark Received
+                                </button>
+                              )}
+                              
                               <button
-                                onClick={() => openPickupModal(item)}
-                                className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5"
+                                onClick={() => openClaimModal(item)}
+                                className="py-1.5 px-3.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5"
                               >
-                                <span>📥</span> Mark Received & Set Pickup Date
+                                <span>✅</span> Mark Claimed
                               </button>
-                            )}
-                            
+                            </>
+                          )}
+
+                          {!isManagement && !isClaimed && item.type === "lost" && (
                             <button
                               onClick={() => openClaimModal(item)}
-                              className="py-2 px-4 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5"
+                              className="py-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition"
                             >
-                              <span>✅</span> Mark as Claimed / Handed Over
+                              Mark as Found / Resolved
                             </button>
-                          </>
-                        )}
-
-                        {!isManagement && !isClaimed && item.type === "lost" && (
-                          <button
-                            onClick={() => openClaimModal(item)}
-                            className="py-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition"
-                          >
-                            Mark as Found / Resolved
-                          </button>
-                        )}
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -962,6 +1092,172 @@ export default function LostFoundPage() {
                     className="flex-1 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow"
                   >
                     {loading ? "Completing..." : "Confirm Handover & Resolve"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Lost & Found Item Modal */}
+        {activeEditModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-lg w-full border border-emerald-100 shadow-2xl p-6 relative space-y-4 max-h-[90vh] overflow-y-auto">
+              <button
+                onClick={() => setActiveEditModal(null)}
+                className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-700 text-lg"
+              >
+                ✕
+              </button>
+
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">✏️</span>
+                <div>
+                  <h3 className="text-base font-black text-zinc-900">Edit Lost & Found Report</h3>
+                  <p className="text-[11px] text-zinc-500">Update item details, location, or attachments</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveEdit} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-600 mb-1">Item Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-semibold"
+                    placeholder="e.g. Blue HP Laptop Charger"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Report Type *</label>
+                    <select
+                      value={editType}
+                      onChange={(e) => setEditType(e.target.value as "lost" | "found")}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-semibold"
+                    >
+                      <option value="lost">🔴 Lost Item</option>
+                      <option value="found">🟢 Found Item</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Location *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editLocation}
+                      onChange={(e) => setEditLocation(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-semibold"
+                      placeholder="e.g. Library 1st Floor"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-600 mb-1">Contact Phone / Email *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editContact}
+                    onChange={(e) => setEditContact(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-semibold"
+                    placeholder="e.g. 9876543210 / student@ips.edu"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-600 mb-1">Item Description *</label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-xs text-zinc-800 focus:outline-none focus:border-emerald-500 font-medium"
+                    placeholder="Describe specific marks, colors, brand, serial, or where last seen..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-600 mb-1">Item Photo (Optional)</label>
+                  {editExistingImageUrl && !editImageFile && (
+                    <div className="flex items-center gap-3 mb-2 p-2 bg-zinc-50 border border-zinc-200 rounded-xl">
+                      <img src={editExistingImageUrl} alt="Item" className="w-12 h-12 object-cover rounded-lg border border-zinc-200" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-bold text-zinc-700 truncate">Current Photo Attached</p>
+                        <p className="text-[10px] text-zinc-400">Click remove if you wish to detach</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditExistingImageUrl("")}
+                        className="text-xs text-rose-600 font-bold hover:underline px-2 py-1 bg-rose-50 rounded-lg"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    ref={editImageInputRef}
+                    accept="image/*"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditImageFile(e.target.files[0]);
+                      }
+                    }}
+                    className="w-full text-xs text-zinc-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                  />
+                </div>
+
+                {editType === "lost" && (
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">Ownership Proof (Bill/Receipt/Box)</label>
+                    {editExistingProofUrl && !editProofFile && (
+                      <div className="flex items-center gap-3 mb-2 p-2 bg-rose-50/70 border border-rose-200 rounded-xl">
+                        <span className="text-lg">📄</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-bold text-rose-900 truncate">Current Proof Attached</p>
+                          <a href={editExistingProofUrl} target="_blank" rel="noreferrer" className="text-[10px] text-rose-700 underline">View current document</a>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEditExistingProofUrl("")}
+                          className="text-xs text-rose-600 font-bold hover:underline px-2 py-1 bg-rose-100/60 rounded-lg"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      ref={editProofInputRef}
+                      accept="image/*,application/pdf"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setEditProofFile(e.target.files[0]);
+                        }
+                      }}
+                      className="w-full text-xs text-zinc-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100"
+                    />
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveEditModal(null)}
+                    className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editSubmitting}
+                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow"
+                  >
+                    {editSubmitting ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
               </form>
