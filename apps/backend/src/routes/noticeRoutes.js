@@ -8,5 +8,6 @@ router.get("/", verifyToken, noticeController.getAllNotices);
 
 // Create notice (Faculty/Admin only)
 router.post("/", verifyToken, verifyFacultyOrAdmin, noticeController.createNotice);
+router.delete("/:id", verifyToken, verifyFacultyOrAdmin, noticeController.deleteNotice);
 
 module.exports = router;

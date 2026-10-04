@@ -27,9 +27,36 @@ exports.createNotice = async (req, res) => {
 // Get all notices
 exports.getAllNotices = async (req, res) => {
   try {
-    const notices = await Notice.find().populate("author", "email").sort({ createdAt: -1 });
+    const filter = {};
+    if (req.query.category) {
+      filter.category = req.query.category;
+    }
+    const notices = await Notice.find(filter).populate("author", "email").sort({ createdAt: -1 });
     res.json({ success: true, notices });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// Delete notice (Author or Admin)
+exports.deleteNotice = async (req, res) => {
+  try {
+    const notice = await Notice.findById(req.params.id);
+    if (!notice) {
+      return res.status(404).json({ success: false, message: "Notice not found" });
+    }
+
+    const isAuthor = notice.author && notice.author.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+
+    if (!isAuthor && !isAdmin) {
+      return res.status(403).json({ success: false, message: "Unauthorized to delete this notice" });
+    }
+
+    await Notice.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: "Notice deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+

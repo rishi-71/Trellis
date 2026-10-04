@@ -54,6 +54,7 @@ router.post("/resources/:id/return", verifyToken, verifyStudent, campusControlle
 
 // M8: Lost & Found
 router.get("/lostfound", verifyToken, campusController.getAllLostFound);
+router.get("/lostfound/summary", verifyToken, campusController.getLostFoundSummary);
 router.post("/lostfound", verifyToken, campusController.reportLostFound);
 router.put("/lostfound/:id/claim", verifyToken, campusController.claimLostFound);
 router.patch("/lostfound/:id/management-status", verifyToken, verifyManagementOrFacultyOrAdmin, campusController.updateLostFoundStatus);

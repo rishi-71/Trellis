@@ -455,6 +455,48 @@ exports.claimLostFound = async (req, res) => {
   }
 };
 
+exports.getLostFoundSummary = async (req, res) => {
+  try {
+    const items = await LostFound.find({}).populate("reporter", "email");
+    const userId = req.user?.id ? req.user.id.toString() : null;
+
+    // 1. Not Found Yet (Red): items of type 'lost' with status 'open'
+    const notFoundCount = items.filter(i => i.type === "lost" && i.status === "open").length;
+
+    // 2. Found & Awaiting Claim (Amber): items found or ready for pickup but not yet claimed
+    const foundUnclaimedCount = items.filter(i => i.status === "ready_for_pickup" || (i.type === "found" && i.status === "awaiting_handover")).length;
+
+    // 3. Claimed (Green): items with status 'claimed'
+    const claimedCount = items.filter(i => i.status === "claimed").length;
+
+    // User-specific stats (for logged in Student or Faculty)
+    const myItems = userId
+      ? items.filter(i => i.reporter && ((i.reporter._id ? i.reporter._id.toString() : i.reporter.toString()) === userId))
+      : [];
+
+    const myLostNotFound = myItems.filter(i => i.type === "lost" && i.status === "open").length;
+    const myLostFoundReady = myItems.filter(i => i.type === "lost" && i.status === "ready_for_pickup").length;
+    const myLostClaimed = myItems.filter(i => i.type === "lost" && i.status === "claimed").length;
+
+    res.json({
+      success: true,
+      summary: {
+        notFoundCount,          // Red: Lost items still searching
+        foundUnclaimedCount,    // Amber: Found items awaiting owner claim
+        claimedCount,           // Green: Successfully claimed items
+        totalActive: notFoundCount + foundUnclaimedCount,
+        myLostNotFound,
+        myLostFoundReady,
+        myLostClaimed,
+        hasUrgentFoundAlert: myLostFoundReady > 0
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
 exports.getLocationDetail = async (req, res) => {
   try {
     const location = await Location.findById(req.params.id);
