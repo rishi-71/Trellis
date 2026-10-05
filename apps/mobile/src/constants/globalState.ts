@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 class GlobalState {
   private _token: string | null = null;
   private _ipAddress: string = '127.0.0.1';
@@ -6,6 +8,40 @@ class GlobalState {
   private _studentYear: number = 1;
   private _studentSemester: number = 1;
   private _listeners: (() => void)[] = [];
+  private _initialized: boolean = false;
+
+  constructor() {
+    this.loadPersistedState();
+  }
+
+  private async loadPersistedState() {
+    try {
+      const [token, ip, role, branch, year, sem] = await Promise.all([
+        AsyncStorage.getItem('trellis_token'),
+        AsyncStorage.getItem('trellis_ip'),
+        AsyncStorage.getItem('trellis_role'),
+        AsyncStorage.getItem('trellis_branch'),
+        AsyncStorage.getItem('trellis_year'),
+        AsyncStorage.getItem('trellis_semester'),
+      ]);
+
+      if (token) this._token = token;
+      if (ip) this._ipAddress = ip;
+      if (role) this._userRole = role;
+      if (branch) this._studentBranch = branch;
+      if (year) this._studentYear = parseInt(year) || 1;
+      if (sem) this._studentSemester = parseInt(sem) || 1;
+
+      this._initialized = true;
+      this.notify();
+    } catch (e) {
+      console.warn('Failed to load persisted auth state:', e);
+    }
+  }
+
+  get isInitialized() {
+    return this._initialized;
+  }
 
   get token() {
     return this._token;
@@ -13,6 +49,15 @@ class GlobalState {
 
   setToken(val: string | null) {
     this._token = val;
+    if (val) {
+      AsyncStorage.setItem('trellis_token', val).catch(() => {});
+    } else {
+      AsyncStorage.removeItem('trellis_token').catch(() => {});
+      AsyncStorage.removeItem('trellis_role').catch(() => {});
+      AsyncStorage.removeItem('trellis_branch').catch(() => {});
+      AsyncStorage.removeItem('trellis_year').catch(() => {});
+      AsyncStorage.removeItem('trellis_semester').catch(() => {});
+    }
     this.notify();
   }
 
@@ -22,6 +67,7 @@ class GlobalState {
 
   setIpAddress(val: string) {
     this._ipAddress = val;
+    AsyncStorage.setItem('trellis_ip', val).catch(() => {});
     this.notify();
   }
 
@@ -31,6 +77,11 @@ class GlobalState {
 
   setUserRole(val: string | null) {
     this._userRole = val;
+    if (val) {
+      AsyncStorage.setItem('trellis_role', val).catch(() => {});
+    } else {
+      AsyncStorage.removeItem('trellis_role').catch(() => {});
+    }
     this.notify();
   }
 
@@ -40,6 +91,7 @@ class GlobalState {
 
   setStudentBranch(val: string) {
     this._studentBranch = val;
+    AsyncStorage.setItem('trellis_branch', val).catch(() => {});
     this.notify();
   }
 
@@ -49,6 +101,7 @@ class GlobalState {
 
   setStudentYear(val: number) {
     this._studentYear = val;
+    AsyncStorage.setItem('trellis_year', val.toString()).catch(() => {});
     this.notify();
   }
 
@@ -58,6 +111,7 @@ class GlobalState {
 
   setStudentSemester(val: number) {
     this._studentSemester = val;
+    AsyncStorage.setItem('trellis_semester', val.toString()).catch(() => {});
     this.notify();
   }
 
@@ -78,3 +132,4 @@ class GlobalState {
 }
 
 export const globalState = new GlobalState();
+

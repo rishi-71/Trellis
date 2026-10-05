@@ -1,17 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TouchableOpacity, 
-  ScrollView, 
-  Dimensions 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  RefreshControl
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Spacing } from '@/constants/theme';
 import { globalState } from '@/constants/globalState';
 
-// Modular Component Imports
+// Modular Component Imports (Preserved 100% untouched)
 import FinderModule from '@/components/modules/FinderModule';
 import CareerModule from '@/components/modules/CareerModule';
 import PlacementsModule from '@/components/modules/PlacementsModule';
@@ -21,9 +21,16 @@ import ComplaintsModule from '@/components/modules/ComplaintsModule';
 import LostFoundModule from '@/components/modules/LostFoundModule';
 import SOSModule from '@/components/modules/SOSModule';
 
-const { width } = Dimensions.get('window');
-
-type ActiveApp = 'none' | 'finder' | 'career' | 'placements' | 'sensors' | 'notices' | 'complaints' | 'lostfound' | 'sos';
+type ActiveApp =
+  | 'none'
+  | 'finder'
+  | 'career'
+  | 'placements'
+  | 'sensors'
+  | 'notices'
+  | 'complaints'
+  | 'lostfound'
+  | 'sos';
 
 export default function HomeScreen() {
   const [token, setToken] = useState<string | null>(globalState.token);
@@ -32,9 +39,13 @@ export default function HomeScreen() {
   const [studentBranch, setStudentBranch] = useState(globalState.studentBranch);
   const [studentYear, setStudentYear] = useState(globalState.studentYear);
   const [studentSemester, setStudentSemester] = useState(globalState.studentSemester);
-  const [activeApp, setActiveApp] = useState<ActiveApp>('none');
 
-  // Sync token and IP
+  const [activeApp, setActiveApp] = useState<ActiveApp>('none');
+  const [refreshing, setRefreshing] = useState(false);
+  const [facultyDept, setFacultyDept] = useState<string>('');
+  const [userProfile, setUserProfile] = useState<any>(null);
+
+  // Sync with globalState
   useEffect(() => {
     const unsubscribe = globalState.subscribe(() => {
       setToken(globalState.token);
@@ -49,23 +60,185 @@ export default function HomeScreen() {
 
   const backendUrl = globalState.backendUrl;
 
-  const desktopApps = [
-    { id: 'finder' as ActiveApp, name: '📍 Campus Finder', desc: 'Indoor navigation map & route paths', bg: '#10B981' },
-    { id: 'placements' as ActiveApp, name: '💼 Careers Board', desc: 'Placement openings & eligibility checklists', bg: '#047857' },
-    { id: 'career' as ActiveApp, name: '👥 Career Hub Feed', desc: 'Classmate updates & points leaderboard', bg: '#059669' },
-    { id: 'sensors' as ActiveApp, name: '🔬 Sensor Renting', desc: 'Lease IoT hardware sensors for lab work', bg: '#065F46' },
-    { id: 'notices' as ActiveApp, name: '📢 College Notices', desc: 'Official administrative announcements', bg: '#34D399' },
-    { id: 'complaints' as ActiveApp, name: '🔧 Support Services', desc: 'Log classroom maintenance tickets', bg: '#059669' },
-    { id: 'lostfound' as ActiveApp, name: '📦 Claims Bulletin', desc: 'Lost and found item reports catalog', bg: '#10B981' },
-    { id: 'sos' as ActiveApp, name: '🚨 Security SOS Panic', desc: 'Trigger guards instant dispatch alarm', bg: '#EF4444' }
+  // Sync user role and department for access control
+  const syncPermissions = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${backendUrl}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.user?.role) {
+          setUserRole(data.user.role);
+          globalState.setUserRole(data.user.role);
+        }
+        if (data.profile) {
+          setUserProfile(data.profile);
+          if (data.user?.role === 'student') {
+            if (data.profile.branch) globalState.setStudentBranch(data.profile.branch);
+            if (data.profile.year) globalState.setStudentYear(data.profile.year);
+            if (data.profile.semester) globalState.setStudentSemester(data.profile.semester);
+          } else if (data.user?.role === 'faculty') {
+            setFacultyDept(data.profile.department || '');
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('Sync note:', e.message);
+    }
+  }, [token, backendUrl]);
+
+  useEffect(() => {
+    syncPermissions();
+  }, [syncPermissions]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await syncPermissions();
+    setRefreshing(false);
+  };
+
+  const isFacultyOrAdmin = userRole === 'faculty' || userRole === 'admin';
+  const isStudent = userRole === 'student';
+  const isManagement = userRole === 'management';
+
+  // Role-specific app titles & descriptions matching web
+  const careerTitle = isFacultyOrAdmin
+    ? 'Student Records & Verifications'
+    : 'Career Hub Feed';
+  const careerDesc = isFacultyOrAdmin
+    ? 'Verify student achievements, search student profiles by roll number or email, and discover campus talent.'
+    : 'Classmate updates, peer skill endorsements & points leaderboard';
+
+  const eventsTitle = isStudent
+    ? 'Notices and Events'
+    : 'Notices and Event Management';
+  const eventsDesc = isStudent
+    ? 'Explore upcoming events, publish notices, register for workshops, and track campus activities.'
+    : 'Broadcast announcements, organize events, mark attendance and publish results.';
+
+  const allApps = [
+    {
+      id: 'finder' as ActiveApp,
+      name: '📍 Campus Finder',
+      desc: 'Interactive maps, building floor plans & Dijkstra shortest path routing',
+      bg: '#10B981',
+      badge: 'NAVIGATOR'
+    },
+    {
+      id: 'notices' as ActiveApp,
+      name: `📢 ${eventsTitle}`,
+      desc: eventsDesc,
+      bg: '#0D9488',
+      badge: 'FEED'
+    },
+    {
+      id: 'placements' as ActiveApp,
+      name: '💼 Careers & Placements',
+      desc: 'Placement drive openings, company postings & auto-eligibility checklists',
+      bg: '#047857',
+      badge: 'CAREERS'
+    },
+    {
+      id: 'career' as ActiveApp,
+      name: isFacultyOrAdmin ? `🎓 ${careerTitle}` : `👥 ${careerTitle}`,
+      desc: careerDesc,
+      bg: '#059669',
+      badge: isFacultyOrAdmin ? 'FACULTY DESK' : 'SOCIAL'
+    },
+    {
+      id: 'sensors' as ActiveApp,
+      name: '🔬 IoT Sensor Renting',
+      desc: 'Lease microcontrollers & IoT lab hardware with automated due-date return tracking',
+      bg: '#065F46',
+      badge: 'HARDWARE'
+    },
+    {
+      id: 'complaints' as ActiveApp,
+      name: '🔧 Service Complaints',
+      desc: 'Log campus facilities & maintenance tickets (WiFi, classroom, washrooms)',
+      bg: '#0F766E',
+      badge: 'FACILITIES'
+    },
+    {
+      id: 'lostfound' as ActiveApp,
+      name: '📦 Lost & Found Claims',
+      desc: 'Campus claims bulletin, report lost valuables & track found handover status',
+      bg: '#10B981',
+      badge: 'BULLETIN'
+    },
+    {
+      id: 'sos' as ActiveApp,
+      name: '🚨 Security SOS Panic',
+      desc: 'Instant guard dispatch alarm transmitting emergency campus coordinates',
+      bg: '#EF4444',
+      badge: 'EMERGENCY'
+    }
   ];
+
+  // Role-Based Filtering (Exact Web Parity)
+  const accessibleApps = allApps.filter((app) => {
+    // Management Persona
+    if (isManagement) {
+      return app.id === 'lostfound' || app.id === 'complaints' || app.id === 'finder';
+    }
+
+    // Faculty Persona
+    if (userRole === 'faculty') {
+      // 1. Placements: Faculty cannot access
+      if (app.id === 'placements') return false;
+      // 2. Complaints: Faculty cannot access
+      if (app.id === 'complaints') return false;
+      // 3. Sensors: Only IoT, ECE, Electrical, Electronics faculty allowed
+      if (app.id === 'sensors') {
+        const deptLower = (facultyDept || userProfile?.department || '').toLowerCase();
+        const isAllowed =
+          deptLower.includes('iot') ||
+          deptLower.includes('electronics') ||
+          deptLower.includes('electrical') ||
+          deptLower.includes('ece') ||
+          deptLower.includes('eee');
+        if (!isAllowed) return false;
+      }
+      return true;
+    }
+
+    // Student Persona
+    if (isStudent) {
+      // Placements: Restricted to 3rd Year (Yr 3+) or 6th Semester (Sem 6+)
+      if (app.id === 'placements') {
+        const isAllowed = studentYear >= 3 || studentSemester >= 6;
+        if (!isAllowed) return false;
+      }
+      return true;
+    }
+
+    return true;
+  });
+
+  const handleLaunchApp = (appId: ActiveApp) => {
+    if (appId === 'placements' && isStudent) {
+      const isAllowed = studentYear >= 3 || studentSemester >= 6;
+      if (!isAllowed) {
+        Alert.alert(
+          'Eligibility Notice',
+          'The Placement Board is restricted to students in their 3rd Year or 6th Semester (and above).'
+        );
+        return;
+      }
+    }
+
+    setActiveApp(appId);
+  };
 
   if (!token) {
     return (
       <SafeAreaView style={styles.centerContainer}>
+        <Text style={styles.lockIcon}>🌱</Text>
         <Text style={styles.warnTitle}>Trellis Campus OS</Text>
         <Text style={styles.warnText}>
-          Please switch to the Profile tab to register your credentials and configure your college server IP address.
+          Please switch to the **Profile** tab to sign in or register your institutional credentials.
         </Text>
       </SafeAreaView>
     );
@@ -74,152 +247,109 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       {activeApp === 'none' ? (
-        /* Welcome Greeting Dashboard (Default home page style) */
-        <ScrollView contentContainerStyle={styles.desktop}>
-          {/* Greeting Card */}
-          <View style={styles.greetingCard}>
-            <Text style={styles.greetingTitle}>Hello, student@ips.edu! 👋</Text>
-            <Text style={styles.greetingText}>
-              Welcome to Campus OS. Select an application shortcut below to open the module workspace.
-            </Text>
-            <Text style={styles.ipText}>Connected Server: {ipAddress}</Text>
-          </View>
-
-          {/* Student Stats Cards */}
-          <View style={styles.statsGrid}>
-            <View style={styles.statsCard}>
-              <Text style={styles.statsEmoji}>🏆</Text>
-              <Text style={styles.statsVal}>150</Text>
-              <Text style={styles.statsLbl}>Points</Text>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#10B981']} />
+          }
+        >
+          {/* Clean App Header Bar */}
+          <View style={styles.topHeader}>
+            <View>
+              <Text style={styles.brandTitle}>🌱 Trellis</Text>
+              <Text style={styles.brandSub}>Campus Applications & Services</Text>
             </View>
-            <View style={styles.statsCard}>
-              <Text style={styles.statsEmoji}>🎓</Text>
-              <Text style={styles.statsVal}>8.54</Text>
-              <Text style={styles.statsLbl}>CGPA</Text>
-            </View>
-            <View style={styles.statsCard}>
-              <Text style={styles.statsEmoji}>🔬</Text>
-              <Text style={styles.statsVal}>1</Text>
-              <Text style={styles.statsLbl}>Leases</Text>
-            </View>
-            <View style={styles.statsCard}>
-              <Text style={styles.statsEmoji}>🔧</Text>
-              <Text style={styles.statsVal}>0</Text>
-              <Text style={styles.statsLbl}>Cases</Text>
+            <View style={styles.roleTag}>
+              <Text style={styles.roleTagText}>
+                {userRole ? userRole.toUpperCase() : 'STUDENT'}
+              </Text>
             </View>
           </View>
 
-          {/* Vertical Launcher List */}
-          <Text style={styles.sectionHeading}>Campus Applications</Text>
-          <View style={styles.list}>
-            {desktopApps
-              .filter((app) => {
-                if (userRole === "management") {
-                  return app.id === "lostfound" || app.id === "complaints";
-                }
-                if (userRole === "student") {
-                  if (app.id === "placements") {
-                    const isAllowed = studentYear >= 3 || studentSemester >= 6;
-                    if (!isAllowed) return false;
-                  }
-                } else if (userRole === "faculty") {
-                  if (app.id === "placements" || app.id === "complaints") {
-                    return false;
-                  }
-                }
-                return true;
-              })
-              .map((app) => (
-              <TouchableOpacity 
-                key={app.id} 
-                style={styles.listRow} 
-                onPress={() => setActiveApp(app.id)}
+          {/* Features / Applications List */}
+          <View style={styles.appsList}>
+            {accessibleApps.map((app) => (
+              <TouchableOpacity
+                key={app.id}
+                style={styles.appCard}
+                activeOpacity={0.85}
+                onPress={() => handleLaunchApp(app.id)}
               >
-                <View style={[styles.rowIconBg, { backgroundColor: app.bg }]}>
-                  <Text style={styles.rowIconTxt}>{app.name.split(' ')[0]}</Text>
+                <View style={[styles.appIconBg, { backgroundColor: app.bg }]}>
+                  <Text style={styles.appIconTxt}>{app.name.split(' ')[0]}</Text>
                 </View>
-                <View style={styles.rowMeta}>
-                  <Text style={styles.rowTitle}>{app.name.split(' ').slice(1).join(' ')}</Text>
-                  <Text style={styles.rowDesc}>{app.desc}</Text>
+
+                <View style={styles.appMeta}>
+                  <View style={styles.appTitleRow}>
+                    <Text style={styles.appName}>
+                      {app.name.split(' ').slice(1).join(' ')}
+                    </Text>
+                    {app.badge && (
+                      <View style={styles.appBadge}>
+                        <Text style={styles.appBadgeTxt}>{app.badge}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.appDesc} numberOfLines={2}>
+                    {app.desc}
+                  </Text>
                 </View>
-                <Text style={styles.arrow}>➔</Text>
+
+                <Text style={styles.appChevron}>➔</Text>
               </TouchableOpacity>
             ))}
           </View>
         </ScrollView>
       ) : (
-        /* Workspace Wrapper for Module screen overlay */
-        <View style={styles.workspace}>
+        /* Workspace Overlay for Active Module */
+        <View style={styles.workspaceContainer}>
           {/* Header Back Bar */}
           <View style={styles.workspaceHeader}>
             <Text style={styles.workspaceTitle}>
               {activeApp.toUpperCase()} WORKSPACE
             </Text>
-            <TouchableOpacity style={styles.homeBtn} onPress={() => setActiveApp('none')}>
-              <Text style={styles.homeBtnText}>🏠 Home</Text>
+            <TouchableOpacity
+              style={styles.closeWorkspaceBtn}
+              onPress={() => setActiveApp('none')}
+            >
+              <Text style={styles.closeWorkspaceTxt}>✕ Close</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Active Modular Screen Content */}
-          <ScrollView contentContainerStyle={styles.workspaceContent}>
-            {activeApp === 'finder' && <FinderModule token={token} backendUrl={backendUrl} />}
-            {activeApp === 'career' && <CareerModule token={token} backendUrl={backendUrl} />}
-            {activeApp === 'placements' && (() => {
-              const isAllowed = (userRole === 'student' && (studentYear >= 3 || studentSemester >= 6)) || userRole === 'admin';
-              if (!isAllowed) {
-                return (
-                  <View style={{ padding: 24, alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, margin: 16 }}>
-                    <Text style={{ fontSize: 32, marginBottom: 12 }}>💼</Text>
-                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#EF4444', marginBottom: 8 }}>Access Restricted</Text>
-                    <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
-                      {userRole === 'faculty'
-                        ? 'The Placement Board is not accessible to faculty members.'
-                        : 'The Placement Board is restricted to students in their 3rd Year or 6th Semester (and above).'}
-                    </Text>
-                  </View>
-                );
-              }
-              return <PlacementsModule token={token} backendUrl={backendUrl} />;
-            })()}
-            {activeApp === 'sensors' && (() => {
-              let isAllowed = false;
-              if (userRole === 'student' || userRole === 'admin') {
-                isAllowed = true;
-              } else if (userRole === 'faculty') {
-                const deptName = (studentBranch || "").toLowerCase();
-                isAllowed = deptName.includes("iot") || deptName.includes("electronics") || deptName.includes("electrical") || deptName.includes("ece") || deptName.includes("eee");
-              }
-
-              if (!isAllowed) {
-                return (
-                  <View style={{ padding: 24, alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, margin: 16 }}>
-                    <Text style={{ fontSize: 32, marginBottom: 12 }}>🔬</Text>
-                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#EF4444', marginBottom: 8 }}>Access Restricted</Text>
-                    <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
-                      The IoT Sensor Renting feature is restricted to faculty members from IoT, ECE, and Electrical departments.
-                    </Text>
-                  </View>
-                );
-              }
-              return <SensorsModule token={token} backendUrl={backendUrl} />;
-            })()}
-            {activeApp === 'notices' && <NoticesModule token={token} backendUrl={backendUrl} />}
-            {activeApp === 'complaints' && (() => {
-              if (userRole === 'faculty') {
-                return (
-                  <View style={{ padding: 24, alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, margin: 16 }}>
-                    <Text style={{ fontSize: 32, marginBottom: 12 }}>🔧</Text>
-                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#EF4444', marginBottom: 8 }}>Access Restricted</Text>
-                    <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
-                      The Support Complaints board is not accessible to faculty members.
-                    </Text>
-                  </View>
-                );
-              }
-              return <ComplaintsModule token={token} backendUrl={backendUrl} userRole={userRole} />;
-            })()}
-            {activeApp === 'lostfound' && <LostFoundModule token={token} backendUrl={backendUrl} userRole={userRole} />}
-            {activeApp === 'sos' && <SOSModule token={token} backendUrl={backendUrl} />}
+          {/* Module Content */}
+          <ScrollView contentContainerStyle={styles.workspaceBody}>
+            {activeApp === 'finder' && (
+              <FinderModule token={token} backendUrl={backendUrl} />
+            )}
+            {activeApp === 'career' && (
+              <CareerModule token={token} backendUrl={backendUrl} />
+            )}
+            {activeApp === 'placements' && (
+              <PlacementsModule token={token} backendUrl={backendUrl} />
+            )}
+            {activeApp === 'sensors' && (
+              <SensorsModule token={token} backendUrl={backendUrl} />
+            )}
+            {activeApp === 'notices' && (
+              <NoticesModule token={token} backendUrl={backendUrl} />
+            )}
+            {activeApp === 'complaints' && (
+              <ComplaintsModule
+                token={token}
+                backendUrl={backendUrl}
+                userRole={userRole}
+              />
+            )}
+            {activeApp === 'lostfound' && (
+              <LostFoundModule
+                token={token}
+                backendUrl={backendUrl}
+                userRole={userRole}
+              />
+            )}
+            {activeApp === 'sos' && (
+              <SOSModule token={token} backendUrl={backendUrl} />
+            )}
           </ScrollView>
         </View>
       )}
@@ -236,167 +366,158 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: Spacing.six,
+    padding: 24,
     backgroundColor: '#F4FBF7',
   },
+  lockIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
   warnTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '900',
     color: '#064E3B',
     marginBottom: 8,
   },
   warnText: {
-    fontSize: 14,
-    color: '#374151',
+    fontSize: 13,
+    color: '#4B5563',
     textAlign: 'center',
-    lineHeight: 22,
-  },
-  // Greeting Dashboard Styles
-  desktop: {
-    padding: Spacing.four,
-  },
-  greetingCard: {
-    backgroundColor: '#059669',
-    borderRadius: 24,
-    padding: Spacing.five,
-    marginBottom: Spacing.four,
-    shadowColor: '#059669',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  greetingTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: '#FFF',
-  },
-  greetingText: {
-    fontSize: 12,
-    color: '#E6F4EA',
-    marginTop: 6,
     lineHeight: 18,
   },
-  ipText: {
-    fontSize: 10,
-    color: '#A7F3D0',
-    marginTop: 10,
-    fontWeight: 'bold',
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 40,
   },
-  statsGrid: {
+  topHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: Spacing.four,
-  },
-  statsCard: {
-    width: (width - Spacing.four * 2 - Spacing.three * 3) / 4,
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: Spacing.three,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E6F4EA',
+    paddingVertical: 14,
+    marginBottom: 8,
   },
-  statsEmoji: {
-    fontSize: 18,
-    marginBottom: 4,
-  },
-  statsVal: {
-    fontSize: 15,
+  brandTitle: {
+    fontSize: 24,
     fontWeight: '900',
     color: '#064E3B',
+    letterSpacing: -0.5,
   },
-  statsLbl: {
-    fontSize: 8,
-    fontWeight: 'bold',
-    color: '#6B7280',
-    textTransform: 'uppercase',
+  brandSub: {
+    fontSize: 12,
+    color: '#059669',
+    fontWeight: '600',
     marginTop: 2,
   },
-  sectionHeading: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#064E3B',
-    marginBottom: Spacing.three,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  list: {
-    backgroundColor: '#FFF',
-    borderRadius: 24,
+  roleTag: {
+    backgroundColor: '#E6F4EA',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E6F4EA',
-    padding: Spacing.two,
+    borderColor: '#A7F3D0',
   },
-  listRow: {
+  roleTagText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  appsList: {
+    gap: 12,
+  },
+  appCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 18,
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    gap: 14,
+    borderWidth: 1,
+    borderColor: '#E6F4EA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1.5,
   },
-  rowIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+  appIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  rowIconTxt: {
-    fontSize: 20,
+  appIconTxt: {
+    fontSize: 24,
   },
-  rowMeta: {
+  appMeta: {
     flex: 1,
-    marginLeft: 12,
   },
-  rowTitle: {
+  appTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 3,
+  },
+  appName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  appBadge: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  appBadgeTxt: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#4B5563',
+  },
+  appDesc: {
+    fontSize: 12,
+    color: '#6B7280',
+    lineHeight: 16,
+  },
+  appChevron: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#064E3B',
+    color: '#9CA3AF',
+    paddingLeft: 4,
   },
-  rowDesc: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  arrow: {
-    fontSize: 14,
-    color: '#A7F3D0',
-    paddingHorizontal: 8,
-  },
-  // Workspace styles
-  workspace: {
+  workspaceContainer: {
     flex: 1,
+    backgroundColor: '#F4FBF7',
   },
   workspaceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.three,
-    backgroundColor: '#E6F4EA',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#A7F3D0',
+    borderBottomColor: '#E6F4EA',
   },
   workspaceTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
     color: '#064E3B',
-    letterSpacing: 1.2,
+    letterSpacing: 0.5,
   },
-  homeBtn: {
-    backgroundColor: '#064E3B',
-    borderRadius: 16,
+  closeWorkspaceBtn: {
+    backgroundColor: '#FEE2E2',
     paddingHorizontal: 12,
     paddingVertical: 6,
+    borderRadius: 8,
   },
-  homeBtnText: {
-    color: '#FFF',
-    fontSize: 11,
-    fontWeight: 'bold',
+  closeWorkspaceTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#DC2626',
   },
-  workspaceContent: {
-    padding: Spacing.four,
+  workspaceBody: {
+    padding: 12,
   },
 });
