@@ -35,9 +35,11 @@
     "typescript": "~5.9.2"
   },
   "scripts": {
+    "prestart": "node ./scripts/forward-backend.js",
     "start": "expo start",
-    "reset-project": "node ./scripts/reset-project.js",
+    "preandroid": "node ./scripts/forward-backend.js",
     "android": "expo start --android",
+    "reset-project": "node ./scripts/reset-project.js",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint"
