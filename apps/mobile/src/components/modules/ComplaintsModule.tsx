@@ -1,16 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TouchableOpacity, 
-  TextInput, 
-  ActivityIndicator, 
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
   Alert,
   Modal,
-  ScrollView
+  ScrollView,
+  RefreshControl,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
-import { Spacing } from '@/constants/theme';
 
 interface ComplaintsProps {
   token: string;
@@ -18,422 +20,634 @@ interface ComplaintsProps {
   userRole?: string | null;
 }
 
+type StudentTab = 'active' | 'file_new';
+type StatusFilter = 'all' | 'pending' | 'in_progress' | 'resolved';
+
+const CATEGORIES = [
+  { id: 'wifi', label: 'Wi-Fi / Internet', icon: '📶' },
+  { id: 'electrical', label: 'Electrical / Fan', icon: '⚡' },
+  { id: 'projector', label: 'Projector / Screen', icon: '📽️' },
+  { id: 'washroom', label: 'Washroom Hygiene', icon: '🚾' },
+  { id: 'cleaning', label: 'Housekeeping', icon: '🧹' },
+  { id: 'lab_equipment', label: 'Lab Equipment', icon: '🖥️' },
+  { id: 'water_cooler', label: 'Drinking Water', icon: '💧' },
+  { id: 'other', label: 'General Facility', icon: '📦' }
+];
+
 export default function ComplaintsModule({ token, backendUrl, userRole }: ComplaintsProps) {
-  const [loading, setLoading] = useState(false);
-  const [complaints, setComplaints] = useState<any[]>([]);
-  
-  // Student form states
-  const [complaintTitle, setComplaintTitle] = useState('');
-  const [complaintLocation, setComplaintLocation] = useState('');
-  const [complaintCat, setComplaintCat] = useState('wifi');
-  const [complaintDesc, setComplaintDesc] = useState('');
-
-  // Filter state
-  const [filter, setFilter] = useState<'all' | 'pending' | 'in_progress' | 'resolved'>('all');
-
-  // Management Action Modal states
-  const [selectedComplaint, setSelectedComplaint] = useState<any | null>(null);
-  const [actionModalType, setActionModalType] = useState<'start_work' | 'resolve' | null>(null);
-  const [assignedTechnician, setAssignedTechnician] = useState('');
-  const [mgmtResolutionNotes, setMgmtResolutionNotes] = useState('');
-
   const isManagement = userRole === 'management' || userRole === 'admin';
+  const isFaculty = userRole === 'faculty';
 
-  const categories = [
-    { id: 'wifi', label: '📶 Wi-Fi / Net' },
-    { id: 'washroom', label: '🚾 Washroom' },
-    { id: 'projector', label: '📽️ Projector' },
-    { id: 'electrical', label: '⚡ Electrical' },
-    { id: 'water', label: '💧 Water Dispenser' },
-    { id: 'cleaning', label: '🧹 Housekeeping' },
-    { id: 'lab_hardware', label: '🖥️ Lab PC' },
-    { id: 'other', label: '📦 Other' }
-  ];
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [complaints, setComplaints] = useState<any[]>([]);
 
+  // Student Section Tabs: 'active' (view tickets) vs 'file_new' (form)
+  const [studentTab, setStudentTab] = useState<StudentTab>('active');
+
+  // Filtering & Search
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // File Complaint Form States
+  const [title, setTitle] = useState('');
+  const [location, setLocation] = useState('');
+  const [category, setCategory] = useState('wifi');
+  const [description, setDescription] = useState('');
+  const [submittingTicket, setSubmittingTicket] = useState(false);
+
+  // Management Action Modals
+  const [assigningComplaint, setAssigningComplaint] = useState<any | null>(null);
+  const [technicianName, setTechnicianName] = useState('');
+  const [resolvingComplaint, setResolvingComplaint] = useState<any | null>(null);
+  const [resolutionNotes, setResolutionNotes] = useState('');
+
+  // Fetch Complaints
   const fetchComplaints = useCallback(async () => {
+    if (!token) return;
     try {
-      const endpoint = isManagement 
-        ? `${backendUrl}/api/complaints` 
+      const endpoint = isManagement
+        ? `${backendUrl}/api/complaints`
         : `${backendUrl}/api/complaints/my`;
 
       const res = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (data.success) {
-        setComplaints(data.complaints || []);
+      if (data.success && Array.isArray(data.complaints)) {
+        setComplaints(data.complaints);
       }
     } catch (err: any) {
-      console.log('Error fetching complaints:', err.message);
-    } finally {
-      setLoading(false);
+      console.warn('Complaints fetch note:', err.message);
     }
   }, [backendUrl, token, isManagement]);
 
-  // Dynamic real-time polling every 5 seconds
   useEffect(() => {
-    fetchComplaints();
-    const interval = setInterval(fetchComplaints, 5000);
-    return () => clearInterval(interval);
+    setLoading(true);
+    fetchComplaints().finally(() => setLoading(false));
   }, [fetchComplaints]);
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchComplaints();
+    setRefreshing(false);
+  };
+
+  // Submit New Complaint (Student)
   const handleFileComplaint = async () => {
-    if (!complaintTitle || !complaintLocation || !complaintDesc) {
-      Alert.alert('Error', 'Please fill in Title, Location, and Description of the issue.');
+    if (!title.trim() || !location.trim() || !description.trim()) {
+      Alert.alert('Required', 'Please fill in Title, Location/Room, and Description.');
       return;
     }
-    setLoading(true);
+    setSubmittingTicket(true);
     try {
       const res = await fetch(`${backendUrl}/api/complaints`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}` 
+          Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ 
-          title: complaintTitle,
-          location: complaintLocation,
-          category: complaintCat, 
-          description: complaintDesc 
+        body: JSON.stringify({
+          title: title.trim(),
+          location: location.trim(),
+          category,
+          description: description.trim()
         })
       });
       const data = await res.json();
       if (data.success) {
-        setComplaintTitle('');
-        setComplaintLocation('');
-        setComplaintDesc('');
-        Alert.alert('Success', 'Complaint ticket submitted to Management Desk!');
+        Alert.alert('Ticket Raised! 🛠️', 'Your complaint has been logged with campus facilities.');
+        setTitle('');
+        setLocation('');
+        setDescription('');
+        setStudentTab('active'); // Auto-switch to Active Complaints tab
         fetchComplaints();
       } else {
-        Alert.alert('Error', data.message || 'Failed to file support request');
+        Alert.alert('Error', data.message || 'Could not log complaint.');
       }
-    } catch (err) {
-      Alert.alert('Error', 'Failed to file support request');
+    } catch (err: any) {
+      Alert.alert('Error', err.message);
     } finally {
-      setLoading(false);
+      setSubmittingTicket(false);
     }
   };
 
-  const handleUpdateStatus = async () => {
-    if (!selectedComplaint || !actionModalType) return;
-    
-    if (actionModalType === 'start_work' && !assignedTechnician) {
-      Alert.alert('Error', 'Please specify the assigned technician or staff.');
+  // Delete Complaint (Available to both Student owner & Management)
+  const handleDeleteComplaint = (complaintId: string, itemTitle: string) => {
+    Alert.alert(
+      'Delete Complaint Ticket',
+      `Are you sure you want to permanently delete "${itemTitle}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await fetch(`${backendUrl}/api/complaints/${complaintId}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              const data = await res.json();
+              if (data.success) {
+                Alert.alert('Deleted', 'Ticket removed successfully.');
+                fetchComplaints();
+              } else {
+                Alert.alert('Error', data.message || 'Could not delete ticket.');
+              }
+            } catch (err: any) {
+              Alert.alert('Error', err.message);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Management: Assign Technician & Mark In Progress
+  const handleAssignTechnician = async () => {
+    if (!assigningComplaint) return;
+    if (!technicianName.trim()) {
+      Alert.alert('Required', 'Please enter the technician name.');
       return;
     }
-
-    if (actionModalType === 'resolve' && !mgmtResolutionNotes) {
-      Alert.alert('Error', 'Please provide resolution notes.');
-      return;
-    }
-
     setLoading(true);
     try {
-      const targetStatus = actionModalType === 'start_work' ? 'in_progress' : 'resolved';
-      const res = await fetch(`${backendUrl}/api/complaints/${selectedComplaint._id}/status`, {
+      const res = await fetch(`${backendUrl}/api/complaints/${assigningComplaint._id}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          status: targetStatus,
-          assignedTo: assignedTechnician || selectedComplaint.assignedTo,
-          resolutionNotes: mgmtResolutionNotes
+          status: 'in_progress',
+          assignedTo: technicianName.trim()
         })
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert(
-          'Success', 
-          targetStatus === 'in_progress' 
-            ? 'Work marked as ongoing and technician assigned!' 
-            : 'Ticket marked as resolved!'
-        );
-        setActionModalType(null);
-        setSelectedComplaint(null);
-        setAssignedTechnician('');
-        setMgmtResolutionNotes('');
+        Alert.alert('Work Started 🔧', `Assigned to ${technicianName.trim()}.`);
+        setAssigningComplaint(null);
+        setTechnicianName('');
         fetchComplaints();
       } else {
-        Alert.alert('Error', data.message || 'Failed to update complaint status');
+        Alert.alert('Error', data.message || 'Could not update status.');
       }
     } catch (err: any) {
-      Alert.alert('Error', 'Connection failed: ' + err.message);
+      Alert.alert('Error', err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredComplaints = complaints.filter((c) => {
-    if (filter === 'all') return true;
-    return c.status === filter;
-  });
-
-  const getStatusBadge = (status: string) => {
-    if (status === 'in_progress') {
-      return { label: '🔵 Work Ongoing', bg: '#EFF6FF', color: '#1D4ED8' };
+  // Management: Mark Resolved
+  const handleResolveComplaint = async () => {
+    if (!resolvingComplaint) return;
+    if (!resolutionNotes.trim()) {
+      Alert.alert('Required', 'Please enter resolution notes explaining the fix.');
+      return;
     }
-    if (status === 'resolved') {
-      return { label: '🟢 Work Completed', bg: '#ECFDF5', color: '#047857' };
+    setLoading(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/complaints/${resolvingComplaint._id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          status: 'resolved',
+          resolutionNotes: resolutionNotes.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        Alert.alert('Resolved ✅', 'Complaint closed with resolution notes.');
+        setResolvingComplaint(null);
+        setResolutionNotes('');
+        fetchComplaints();
+      } else {
+        Alert.alert('Error', data.message || 'Could not resolve complaint.');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setLoading(false);
     }
-    return { label: '🟡 Pending Review', bg: '#FEF9C3', color: '#854D0E' };
   };
 
+  // Filtered list
+  const filteredComplaints = useMemo(() => {
+    return complaints.filter((c) => {
+      const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
+      const q = searchQuery.toLowerCase().trim();
+      const matchesQuery =
+        !q ||
+        c.title?.toLowerCase().includes(q) ||
+        c.location?.toLowerCase().includes(q) ||
+        c.description?.toLowerCase().includes(q) ||
+        c.category?.toLowerCase().includes(q) ||
+        c.assignedTo?.toLowerCase().includes(q);
+      return matchesStatus && matchesQuery;
+    });
+  }, [complaints, statusFilter, searchQuery]);
+
+  // Counts
+  const pendingCount = useMemo(() => complaints.filter((c) => c.status === 'pending').length, [complaints]);
+  const inProgressCount = useMemo(() => complaints.filter((c) => c.status === 'in_progress').length, [complaints]);
+  const resolvedCount = useMemo(() => complaints.filter((c) => c.status === 'resolved').length, [complaints]);
+
+  if (isFaculty) {
+    return (
+      <View style={styles.facultyBlockedCard}>
+        <Text style={styles.facultyBlockedEmoji}>🔧</Text>
+        <Text style={styles.facultyBlockedTitle}>Access Restricted</Text>
+        <Text style={styles.facultyBlockedDesc}>
+          The Campus Support & Maintenance board is managed directly between students and facilities management. Faculty members do not participate in service tickets.
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.card}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.two }}>
-        <Text style={styles.cardTitle}>🔧 Campus Facility Complaints</Text>
-        {isManagement && (
-          <View style={styles.mgmtPill}>
-            <Text style={styles.mgmtPillTxt}>Management Desk</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Student Ticket Filing Form */}
-      {!isManagement && (
+    <View style={styles.container}>
+      {/* Top Header Banner */}
+      <View style={styles.bannerCard}>
         <View>
-          <Text style={styles.label}>File Maintenance Complaint</Text>
-          
-          <TextInput
-            style={styles.input}
-            placeholder="Issue Title (e.g. AC not cooling in Room 304) *"
-            value={complaintTitle}
-            onChangeText={setComplaintTitle}
-            placeholderTextColor="#9CA3AF"
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="Location / Classroom (e.g. Block B, 3rd Floor Lab) *"
-            value={complaintLocation}
-            onChangeText={setComplaintLocation}
-            placeholderTextColor="#9CA3AF"
-          />
-
-          <Text style={[styles.label, { marginTop: 4 }]}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
-            {categories.map((cat) => (
-              <TouchableOpacity 
-                key={cat.id} 
-                style={[styles.catBtn, complaintCat === cat.id && styles.catBtnActive]}
-                onPress={() => setComplaintCat(cat.id)}
-              >
-                <Text style={[styles.catBtnTxt, complaintCat === cat.id && styles.catBtnTxtActive]}>
-                  {cat.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          <Text style={[styles.label, { marginTop: 4 }]}>Description & Specific Details</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="Describe the maintenance or repair needed in detail... *"
-            value={complaintDesc}
-            onChangeText={setComplaintDesc}
-            multiline
-            placeholderTextColor="#9CA3AF"
-          />
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleFileComplaint} disabled={loading}>
-            <Text style={styles.btnText}>{loading ? 'Submitting...' : 'Submit Support Ticket'}</Text>
-          </TouchableOpacity>
-
-          {loading && <ActivityIndicator size="small" color="#10B981" style={{ marginVertical: 12 }} />}
-
-          <View style={styles.divider} />
-        </View>
-      )}
-
-      {/* Filter Tabs */}
-      <View style={{ marginBottom: 12 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Text style={styles.sectionSub}>
-            {isManagement ? 'Campus Maintenance Requests' : 'My Active Case Tickets'} ({filteredComplaints.length})
+          <Text style={styles.bannerTitle}>
+            {isManagement ? '🏢 Facilities Control Desk' : '🔧 Campus Service Support'}
           </Text>
-          <Text style={{ fontSize: 10, color: '#10B981', fontWeight: 'bold' }}>● Real-time</Text>
+          <Text style={styles.bannerSubtitle}>
+            {isManagement
+              ? 'Campus-wide maintenance & infrastructure resolution desk'
+              : 'Log and track classroom, electrical, or hostel facility tickets'}
+          </Text>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-          <TouchableOpacity 
-            style={[styles.filterPill, filter === 'all' && styles.filterPillActive]} 
-            onPress={() => setFilter('all')}
-          >
-            <Text style={[styles.filterPillTxt, filter === 'all' && styles.filterPillTxtActive]}>All</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.filterPill, filter === 'pending' && styles.filterPillActive]} 
-            onPress={() => setFilter('pending')}
-          >
-            <Text style={[styles.filterPillTxt, filter === 'pending' && styles.filterPillTxtActive]}>Pending</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.filterPill, filter === 'in_progress' && styles.filterPillActive]} 
-            onPress={() => setFilter('in_progress')}
-          >
-            <Text style={[styles.filterPillTxt, filter === 'in_progress' && styles.filterPillTxtActive]}>Ongoing</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.filterPill, filter === 'resolved' && styles.filterPillActive]} 
-            onPress={() => setFilter('resolved')}
-          >
-            <Text style={[styles.filterPillTxt, filter === 'resolved' && styles.filterPillTxtActive]}>Completed</Text>
-          </TouchableOpacity>
-        </ScrollView>
       </View>
 
-      {/* Complaints List */}
-      {filteredComplaints.length === 0 ? (
-        <Text style={styles.emptyText}>No tickets found under this filter.</Text>
-      ) : (
-        filteredComplaints.map((c, idx) => {
-          const badge = getStatusBadge(c.status);
-          const studentInfo = c.student?.name ? `${c.student.name} (${c.student.email})` : (c.student?.email || 'Student');
-          return (
-            <View key={c._id || idx} style={styles.itemRow}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Text style={styles.catBadge}>
-                    {(c.category || 'other').toUpperCase()}
-                  </Text>
-                  <Text style={[styles.statusBadge, { backgroundColor: badge.bg, color: badge.color }]}>
-                    {badge.label}
-                  </Text>
-                </View>
-              </View>
+      {/* --- STUDENT TOP TABS: Active Complaints vs File New Complaint --- */}
+      {!isManagement && (
+        <View style={styles.studentTabsWrap}>
+          <TouchableOpacity
+            style={[styles.studentTabBtn, studentTab === 'active' && styles.studentTabBtnActive]}
+            onPress={() => setStudentTab('active')}
+          >
+            <Text style={[styles.studentTabTxt, studentTab === 'active' && styles.studentTabTxtActive]}>
+              📋 Active Complaints ({complaints.length})
+            </Text>
+          </TouchableOpacity>
 
-              <Text style={styles.itemBold}>{c.title || c.description}</Text>
-              {c.title ? <Text style={styles.itemSub}>{c.description}</Text> : null}
-              
-              <Text style={styles.metaTxt}>📍 {c.location || 'Campus Location'}</Text>
-              {isManagement && (
-                <Text style={styles.metaTxt}>👤 Reported by: {studentInfo}</Text>
-              )}
-
-              {/* In Progress Details */}
-              {c.status === 'in_progress' && (
-                <View style={styles.ongoingBox}>
-                  <Text style={styles.ongoingTitle}>🔧 Assigned Technician: {c.assignedTo || 'Facility Support Staff'}</Text>
-                  {c.resolutionNotes ? (
-                    <Text style={styles.ongoingNotes}>📝 Progress Notes: {c.resolutionNotes}</Text>
-                  ) : null}
-                </View>
-              )}
-
-              {/* Resolved Details */}
-              {c.status === 'resolved' && (
-                <View style={styles.resolvedBox}>
-                  <Text style={styles.resolvedTitle}>✅ Work Completed by: {c.assignedTo || 'Management Team'}</Text>
-                  {c.resolutionNotes ? (
-                    <Text style={styles.resolvedNotes}>📝 Resolution Summary: {c.resolutionNotes}</Text>
-                  ) : null}
-                  {c.resolvedAt ? (
-                    <Text style={styles.resolvedDate}>📅 Completed on: {new Date(c.resolvedAt).toLocaleDateString()}</Text>
-                  ) : null}
-                </View>
-              )}
-
-              {/* Management Action Buttons */}
-              {isManagement && (
-                <View style={styles.actionsContainer}>
-                  {c.status === 'pending' && (
-                    <TouchableOpacity 
-                      style={styles.startWorkBtn}
-                      onPress={() => {
-                        setSelectedComplaint(c);
-                        setAssignedTechnician('');
-                        setMgmtResolutionNotes('');
-                        setActionModalType('start_work');
-                      }}
-                    >
-                      <Text style={styles.startWorkBtnTxt}>🛠️ Start Work / Assign Technician</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {c.status === 'in_progress' && (
-                    <TouchableOpacity 
-                      style={styles.resolveBtn}
-                      onPress={() => {
-                        setSelectedComplaint(c);
-                        setAssignedTechnician(c.assignedTo || '');
-                        setMgmtResolutionNotes('');
-                        setActionModalType('resolve');
-                      }}
-                    >
-                      <Text style={styles.resolveBtnTxt}>✅ Mark Work Completed</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-            </View>
-          );
-        })
+          <TouchableOpacity
+            style={[styles.studentTabBtn, studentTab === 'file_new' && styles.studentTabBtnActive]}
+            onPress={() => setStudentTab('file_new')}
+          >
+            <Text style={[styles.studentTabTxt, studentTab === 'file_new' && styles.studentTabTxtActive]}>
+              ✍️ File New Complaint
+            </Text>
+          </TouchableOpacity>
+        </View>
       )}
 
-      {/* MODAL: Management Action Dialog */}
-      <Modal visible={actionModalType !== null} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {actionModalType === 'start_work' ? '🛠️ Assign Technician & Start Work' : '✅ Mark Ticket as Completed'}
+      {/* ================= VIEW 1: FILE NEW COMPLAINT TAB (Student) ================= */}
+      {!isManagement && studentTab === 'file_new' ? (
+        <ScrollView contentContainerStyle={styles.formScrollContainer}>
+          <View style={styles.formCard}>
+            <Text style={styles.formCardTitle}>Raise a Campus Service Ticket</Text>
+            <Text style={styles.formCardSub}>
+              Fill in the details below. Our campus facilities team will inspect and dispatch a technician.
             </Text>
-            <Text style={styles.modalSubtitle}>Ticket: {selectedComplaint?.title || selectedComplaint?.description}</Text>
 
-            {actionModalType === 'start_work' ? (
-              <View>
-                <Text style={styles.modalLabel}>Assigned Technician / Staff *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. Rajesh Kumar (Electrical Dept)"
-                  value={assignedTechnician}
-                  onChangeText={setAssignedTechnician}
-                  placeholderTextColor="#9CA3AF"
-                />
+            {/* Category Selector */}
+            <Text style={styles.fieldLabel}>Select Issue Category</Text>
+            <View style={styles.catGrid}>
+              {CATEGORIES.map((c) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[styles.catChip, category === c.id && styles.catChipActive]}
+                  onPress={() => setCategory(c.id)}
+                >
+                  <Text style={[styles.catChipTxt, category === c.id && styles.catChipTxtActive]}>
+                    {c.icon} {c.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
-                <Text style={styles.modalLabel}>Initial Work Notes / Estimated Time</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="e.g. Parts dispatched. Repair scheduled for 2:00 PM today."
-                  value={mgmtResolutionNotes}
-                  onChangeText={setMgmtResolutionNotes}
-                  multiline
-                  placeholderTextColor="#9CA3AF"
-                />
-              </View>
-            ) : (
-              <View>
-                <Text style={styles.modalLabel}>Resolution Summary / Remarks *</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="e.g. Wiring replaced and socket tested. Problem fully resolved."
-                  value={mgmtResolutionNotes}
-                  onChangeText={setMgmtResolutionNotes}
-                  multiline
-                  placeholderTextColor="#9CA3AF"
-                />
+            {/* Issue Title */}
+            <Text style={styles.fieldLabel}>Issue Summary / Title</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g. Wi-Fi router flashing red / No connection"
+              value={title}
+              onChangeText={setTitle}
+            />
+
+            {/* Location */}
+            <Text style={styles.fieldLabel}>Location & Room Details</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g. Block C, 3rd Floor, Room 304"
+              value={location}
+              onChangeText={setLocation}
+            />
+
+            {/* Description */}
+            <Text style={styles.fieldLabel}>Detailed Description</Text>
+            <TextInput
+              style={[styles.textInput, { height: 95, textAlignVertical: 'top' }]}
+              placeholder="Please provide details (e.g. power outlet sparked, AC leaking water)..."
+              value={description}
+              onChangeText={setDescription}
+              multiline
+            />
+
+            {/* Submit Button */}
+            <TouchableOpacity
+              style={styles.submitTicketBtn}
+              disabled={submittingTicket}
+              onPress={handleFileComplaint}
+            >
+              {submittingTicket ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <Text style={styles.submitTicketBtnTxt}>Submit Maintenance Ticket ➔</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      ) : (
+        /* ================= VIEW 2: ACTIVE COMPLAINTS LIST (Student & Management) ================= */
+        <View style={{ flex: 1 }}>
+          {/* Status Filter Chips */}
+          <View style={styles.statsRow}>
+            <TouchableOpacity
+              style={[styles.statTab, statusFilter === 'all' && styles.statTabActive]}
+              onPress={() => setStatusFilter('all')}
+            >
+              <Text style={styles.statVal}>{complaints.length}</Text>
+              <Text style={styles.statLbl}>All</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.statTab, statusFilter === 'pending' && styles.statTabActive]}
+              onPress={() => setStatusFilter('pending')}
+            >
+              <Text style={[styles.statVal, { color: '#D97706' }]}>{pendingCount}</Text>
+              <Text style={styles.statLbl}>Pending ⏳</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.statTab, statusFilter === 'in_progress' && styles.statTabActive]}
+              onPress={() => setStatusFilter('in_progress')}
+            >
+              <Text style={[styles.statVal, { color: '#4338CA' }]}>{inProgressCount}</Text>
+              <Text style={styles.statLbl}>Ongoing 🔧</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.statTab, statusFilter === 'resolved' && styles.statTabActive]}
+              onPress={() => setStatusFilter('resolved')}
+            >
+              <Text style={[styles.statVal, { color: '#15803D' }]}>{resolvedCount}</Text>
+              <Text style={styles.statLbl}>Resolved ✅</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Bar */}
+          <View style={styles.searchBar}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by issue, room, location, or technician..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </View>
+
+          {/* Complaints Scroll List */}
+          <ScrollView
+            contentContainerStyle={styles.scrollList}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#10B981']} />
+            }
+          >
+            {loading && !refreshing && (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator size="small" color="#10B981" />
+                <Text style={styles.loadingTxt}>Fetching facility tickets...</Text>
               </View>
             )}
 
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-              <TouchableOpacity 
-                style={[styles.modalBtn, { backgroundColor: '#F3F4F6' }]} 
-                onPress={() => {
-                  setActionModalType(null);
-                  setSelectedComplaint(null);
-                }}
-              >
-                <Text style={{ color: '#374151', fontWeight: 'bold', fontSize: 13 }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[
-                  styles.modalBtn, 
-                  { backgroundColor: actionModalType === 'start_work' ? '#0284C7' : '#059669', flex: 2 }
-                ]} 
-                onPress={handleUpdateStatus}
-              >
-                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>
-                  {actionModalType === 'start_work' ? 'Begin Work' : 'Confirm Resolved'}
+            {filteredComplaints.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyEmoji}>🎉</Text>
+                <Text style={styles.emptyTitle}>No Complaints Found</Text>
+                <Text style={styles.emptySub}>
+                  {isManagement
+                    ? 'All campus maintenance tickets are up to date.'
+                    : 'No complaints in this filter. Switch to "File New Complaint" if anything needs repair!'}
                 </Text>
+              </View>
+            ) : (
+              filteredComplaints.map((item) => {
+                const catObj = CATEGORIES.find((c) => c.id === item.category);
+                const icon = catObj?.icon || '📦';
+                const catLabel = catObj?.label || item.category || 'General';
+
+                const statusBg =
+                  item.status === 'resolved'
+                    ? '#DCFCE7'
+                    : item.status === 'in_progress'
+                    ? '#E0E7FF'
+                    : '#FEF3C7';
+                const statusTxtColor =
+                  item.status === 'resolved'
+                    ? '#15803D'
+                    : item.status === 'in_progress'
+                    ? '#4338CA'
+                    : '#B45309';
+                const statusLabel =
+                  item.status === 'resolved'
+                    ? 'RESOLVED'
+                    : item.status === 'in_progress'
+                    ? 'IN PROGRESS'
+                    : 'PENDING';
+
+                const dateStr = item.createdAt
+                  ? new Date(item.createdAt).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric'
+                    })
+                  : 'Recent';
+
+                return (
+                  <View key={item._id} style={styles.ticketCard}>
+                    {/* Header */}
+                    <View style={styles.ticketHeader}>
+                      <View style={styles.catBadge}>
+                        <Text style={styles.catTxt}>
+                          {icon} {catLabel}
+                        </Text>
+                      </View>
+
+                      <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+                        <Text style={[styles.statusBadgeTxt, { color: statusTxtColor }]}>
+                          {statusLabel}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Title & Location */}
+                    <Text style={styles.ticketTitle}>{item.title}</Text>
+                    <View style={styles.locationRow}>
+                      <Text style={styles.locationTxt}>📍 {item.location}</Text>
+                      <Text style={styles.dateTxt}>🕒 {dateStr}</Text>
+                    </View>
+
+                    {/* Description */}
+                    <Text style={styles.ticketDesc}>{item.description}</Text>
+
+                    {/* Assignment details (if in progress) */}
+                    {item.assignedTo && (
+                      <View style={styles.assignedBox}>
+                        <Text style={styles.assignedTxt}>
+                          👷 Assigned Technician:{' '}
+                          <Text style={{ fontWeight: '800' }}>{item.assignedTo}</Text>
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Resolution Notes (if resolved) */}
+                    {item.resolutionNotes && (
+                      <View style={styles.resolutionBox}>
+                        <Text style={styles.resolutionTitle}>Resolution Notes:</Text>
+                        <Text style={styles.resolutionTxt}>{item.resolutionNotes}</Text>
+                      </View>
+                    )}
+
+                    {/* Action Footer: Delete Option (Student & Management) + Workflow Actions (Management) */}
+                    <View style={styles.ticketFooterRow}>
+                      {/* Delete / Withdraw Button (Available to both Student & Management) */}
+                      <TouchableOpacity
+                        style={styles.deleteTicketBtn}
+                        onPress={() => handleDeleteComplaint(item._id, item.title)}
+                      >
+                        <Text style={styles.deleteTicketBtnTxt}>🗑️ Delete Ticket</Text>
+                      </TouchableOpacity>
+
+                      {/* Management Workflow Actions */}
+                      {isManagement && (
+                        <View style={styles.mgmtActionGroup}>
+                          {item.status === 'pending' && (
+                            <TouchableOpacity
+                              style={styles.startWorkBtn}
+                              onPress={() => {
+                                setAssigningComplaint(item);
+                                setTechnicianName(item.assignedTo || '');
+                              }}
+                            >
+                              <Text style={styles.startWorkBtnTxt}>Assign Staff 🔧</Text>
+                            </TouchableOpacity>
+                          )}
+
+                          {item.status !== 'resolved' && (
+                            <TouchableOpacity
+                              style={styles.resolveBtn}
+                              onPress={() => {
+                                setResolvingComplaint(item);
+                                setResolutionNotes(item.resolutionNotes || '');
+                              }}
+                            >
+                              <Text style={styles.resolveBtnTxt}>Resolve ✅</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* ================= MODAL 1: ASSIGN TECHNICIAN (Management) ================= */}
+      <Modal
+        visible={Boolean(assigningComplaint)}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setAssigningComplaint(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Assign Maintenance Staff</Text>
+            <Text style={styles.modalSub}>
+              Ticket: {assigningComplaint?.title} ({assigningComplaint?.location})
+            </Text>
+
+            <Text style={styles.fieldLabel}>Technician / Staff Name</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g. Rajesh Kumar (Electrical Team)"
+              value={technicianName}
+              onChangeText={setTechnicianName}
+            />
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setAssigningComplaint(null)}
+              >
+                <Text style={styles.modalCancelTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSubmitBtn, { backgroundColor: '#4338CA' }]}
+                onPress={handleAssignTechnician}
+              >
+                <Text style={styles.modalSubmitTxt}>Dispatch Staff</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= MODAL 2: MARK RESOLVED (Management) ================= */}
+      <Modal
+        visible={Boolean(resolvingComplaint)}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setResolvingComplaint(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Resolve Maintenance Ticket</Text>
+            <Text style={styles.modalSub}>
+              Ticket: {resolvingComplaint?.title} ({resolvingComplaint?.location})
+            </Text>
+
+            <Text style={styles.fieldLabel}>Resolution Notes</Text>
+            <TextInput
+              style={[styles.textInput, { height: 80, textAlignVertical: 'top' }]}
+              placeholder="Explain how the issue was fixed (e.g. replaced power cable and reset DNS)..."
+              value={resolutionNotes}
+              onChangeText={setResolutionNotes}
+              multiline
+            />
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setResolvingComplaint(null)}
+              >
+                <Text style={styles.modalCancelTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSubmitBtn}
+                onPress={handleResolveComplaint}
+              >
+                <Text style={styles.modalSubmitTxt}>Complete Ticket</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -444,272 +658,440 @@ export default function ComplaintsModule({ token, backendUrl, userRole }: Compla
 }
 
 const styles = StyleSheet.create({
-  card: {
+  container: {
+    flex: 1,
+    gap: 10,
+  },
+  facultyBlockedCard: {
     backgroundColor: '#FFF',
     borderRadius: 20,
-    padding: Spacing.four,
+    padding: 24,
+    alignItems: 'center',
+    margin: 16,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  facultyBlockedEmoji: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  facultyBlockedTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#DC2626',
+    marginBottom: 6,
+  },
+  facultyBlockedDesc: {
+    fontSize: 13,
+    color: '#4B5563',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  bannerCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#E6F4EA',
-    marginBottom: 40,
   },
-  cardTitle: {
-    fontSize: 18,
+  bannerTitle: {
+    fontSize: 16,
     fontWeight: '900',
     color: '#064E3B',
   },
-  mgmtPill: {
-    backgroundColor: '#065F46',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  mgmtPillTxt: {
-    color: '#A7F3D0',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 13,
-    marginBottom: Spacing.two,
-    color: '#000',
-    backgroundColor: '#FAFDFB'
-  },
-  textArea: {
-    height: 60,
-    textAlignVertical: 'top',
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: 'bold',
+  bannerSubtitle: {
+    fontSize: 11,
     color: '#059669',
-    marginBottom: 4,
+    marginTop: 2,
   },
-  primaryBtn: {
-    backgroundColor: '#10B981',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    marginTop: Spacing.one,
-  },
-  btnText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  divider: {
-    height: 1,
+  studentTabsWrap: {
+    flexDirection: 'row',
     backgroundColor: '#E6F4EA',
-    marginVertical: Spacing.four,
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 2,
   },
-  emptyText: {
-    color: '#6B7280',
-    fontSize: 13,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginVertical: 12,
+  studentTabBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    alignItems: 'center',
+    borderRadius: 10,
   },
-  sectionSub: {
-    fontSize: 14,
-    fontWeight: 'bold',
+  studentTabBtnActive: {
+    backgroundColor: '#FFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  studentTabTxt: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  studentTabTxtActive: {
+    color: '#065F46',
+    fontWeight: '900',
+  },
+  formScrollContainer: {
+    paddingBottom: 30,
+  },
+  formCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#E6F4EA',
+    gap: 8,
+  },
+  formCardTitle: {
+    fontSize: 16,
+    fontWeight: '900',
     color: '#064E3B',
   },
-  categoryRow: {
+  formCardSub: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 8,
+    lineHeight: 16,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#374151',
+    marginTop: 6,
+    marginBottom: 2,
+  },
+  catGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 4,
+  },
+  catChip: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  catChipActive: {
+    backgroundColor: '#059669',
+    borderColor: '#059669',
+  },
+  catChipTxt: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  catChipTxtActive: {
+    color: '#FFF',
+    fontWeight: '900',
+  },
+  textInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#111827',
+  },
+  submitTicketBtn: {
+    backgroundColor: '#10B981',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  submitTicketBtnTxt: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  statsRow: {
     flexDirection: 'row',
     gap: 6,
-    marginBottom: 10,
-    paddingVertical: 4,
   },
-  catBtn: {
+  statTab: {
+    flex: 1,
+    backgroundColor: '#FFF',
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#A7F3D0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: '#FAFDFB',
+    borderColor: '#E6F4EA',
   },
-  catBtnActive: {
-    backgroundColor: '#10B981',
-    borderColor: '#10B981',
+  statTabActive: {
+    borderColor: '#059669',
+    backgroundColor: '#E6F4EA',
   },
-  catBtnTxt: {
-    fontSize: 11,
+  statVal: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#064E3B',
+  },
+  statLbl: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E6F4EA',
+  },
+  searchIcon: {
+    fontSize: 13,
+    marginRight: 6,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 8,
+    fontSize: 12,
+    color: '#111827',
+  },
+  scrollList: {
+    paddingBottom: 24,
+    gap: 10,
+    marginTop: 6,
+  },
+  loadingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  loadingTxt: {
+    fontSize: 12,
     color: '#059669',
     fontWeight: '600',
   },
-  catBtnTxtActive: {
-    color: '#FFF',
-    fontWeight: 'bold',
+  emptyCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E6F4EA',
+    marginVertical: 12,
   },
-  filterRow: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 4,
+  emptyEmoji: {
+    fontSize: 32,
+    marginBottom: 8,
   },
-  filterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
   },
-  filterPillActive: {
-    backgroundColor: '#064E3B',
-  },
-  filterPillTxt: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#6B7280',
-  },
-  filterPillTxtActive: {
-    color: '#FFF',
-  },
-  itemRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  catBadge: {
-    backgroundColor: '#E0F2FE',
-    color: '#0369A1',
-    fontSize: 9,
-    fontWeight: 'bold',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  statusBadge: {
-    fontSize: 9,
-    fontWeight: 'bold',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  itemBold: {
-    fontWeight: 'bold',
-    color: '#1F2937',
-    fontSize: 14,
-    marginTop: 2,
-  },
-  itemSub: {
-    color: '#4B5563',
+  emptySub: {
     fontSize: 12,
-    marginTop: 2,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 4,
     lineHeight: 16,
   },
-  metaTxt: {
-    color: '#9CA3AF',
-    fontSize: 10,
-    marginTop: 3,
-    fontWeight: '500',
-  },
-  ongoingBox: {
-    backgroundColor: '#EFF6FF',
+  ticketCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
-    borderRadius: 6,
-    padding: 6,
-    marginTop: 6,
+    borderColor: '#E6F4EA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  ongoingTitle: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#1D4ED8',
-  },
-  ongoingNotes: {
-    fontSize: 9,
-    color: '#1E40AF',
-    marginTop: 2,
-  },
-  resolvedBox: {
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    borderRadius: 6,
-    padding: 6,
-    marginTop: 6,
-  },
-  resolvedTitle: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#047857',
-  },
-  resolvedNotes: {
-    fontSize: 9,
-    color: '#065F46',
-    marginTop: 2,
-  },
-  resolvedDate: {
-    fontSize: 8,
-    color: '#6EE7B7',
-    marginTop: 2,
-  },
-  actionsContainer: {
-    marginTop: 8,
+  ticketHeader: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  catBadge: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  catTxt: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  statusBadgeTxt: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  ticketTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  locationRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 4,
+  },
+  locationTxt: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  dateTxt: {
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
+  ticketDesc: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  assignedBox: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  assignedTxt: {
+    fontSize: 11,
+    color: '#3730A3',
+  },
+  resolutionBox: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+  },
+  resolutionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  resolutionTxt: {
+    fontSize: 11,
+    color: '#166534',
+    marginTop: 2,
+  },
+  ticketFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    flexWrap: 'wrap',
     gap: 8,
   },
-  startWorkBtn: {
-    backgroundColor: '#0284C7',
-    borderRadius: 6,
+  deleteTicketBtn: {
+    backgroundColor: '#FEE2E2',
     paddingHorizontal: 10,
     paddingVertical: 6,
+    borderRadius: 8,
+  },
+  deleteTicketBtnTxt: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  mgmtActionGroup: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  startWorkBtn: {
+    backgroundColor: '#4338CA',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
   startWorkBtnTxt: {
-    color: '#FFF',
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    color: '#FFF',
   },
   resolveBtn: {
-    backgroundColor: '#059669',
-    borderRadius: 6,
+    backgroundColor: '#10B981',
     paddingHorizontal: 10,
     paddingVertical: 6,
+    borderRadius: 8,
   },
   resolveBtnTxt: {
-    color: '#FFF',
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    color: '#FFF',
   },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    justifyContent: 'flex-end',
   },
   modalCard: {
     backgroundColor: '#FFF',
-    width: '100%',
-    borderRadius: 16,
-    padding: 16,
-    elevation: 5,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: '85%',
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '900',
     color: '#064E3B',
     marginBottom: 4,
   },
-  modalSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 12,
-  },
-  modalLabel: {
+  modalSub: {
     fontSize: 11,
-    fontWeight: 'bold',
-    color: '#064E3B',
-    marginBottom: 4,
+    color: '#6B7280',
+    marginBottom: 10,
   },
-  modalBtn: {
+  modalBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  modalCancelBtn: {
     flex: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 11,
+    borderRadius: 10,
     alignItems: 'center',
-    justifyContent: 'center',
+  },
+  modalCancelTxt: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  modalSubmitBtn: {
+    flex: 1,
+    backgroundColor: '#10B981',
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalSubmitTxt: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFF',
   },
 });
