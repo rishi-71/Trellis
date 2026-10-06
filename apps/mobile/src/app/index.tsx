@@ -6,7 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  RefreshControl
+  RefreshControl,
+  Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { globalState } from '@/constants/globalState';
@@ -44,6 +45,11 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [facultyDept, setFacultyDept] = useState<string>('');
   const [userProfile, setUserProfile] = useState<any>(null);
+
+  // Notification Center States
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifModalVisible, setNotifModalVisible] = useState<boolean>(false);
 
   // Sync with globalState
   useEffect(() => {
@@ -89,13 +95,46 @@ export default function HomeScreen() {
     }
   }, [token, backendUrl]);
 
+  const fetchNotifications = useCallback(async () => {
+    if (!token) return;
+    try {
+      const countRes = await fetch(`${backendUrl}/api/notifications/unread-count`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const countData = await countRes.json();
+      if (countData.success) {
+        setUnreadCount(countData.unreadCount || 0);
+      }
+
+      const notifRes = await fetch(`${backendUrl}/api/notifications`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const notifData = await notifRes.json();
+      if (notifData.success && Array.isArray(notifData.notifications)) {
+        setNotifications(notifData.notifications);
+      }
+    } catch (_) {}
+  }, [backendUrl, token]);
+
+  const markAllRead = async () => {
+    try {
+      await fetch(`${backendUrl}/api/notifications/read-all`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUnreadCount(0);
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    } catch (_) {}
+  };
+
   useEffect(() => {
     syncPermissions();
-  }, [syncPermissions]);
+    fetchNotifications();
+  }, [syncPermissions, fetchNotifications]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await syncPermissions();
+    await Promise.all([syncPermissions(), fetchNotifications()]);
     setRefreshing(false);
   };
 
@@ -259,10 +298,28 @@ export default function HomeScreen() {
               <Text style={styles.brandTitle}>🌱 Trellis</Text>
               <Text style={styles.brandSub}>Campus Applications & Services</Text>
             </View>
-            <View style={styles.roleTag}>
-              <Text style={styles.roleTagText}>
-                {userRole ? userRole.toUpperCase() : 'STUDENT'}
-              </Text>
+            <View style={styles.topRightActions}>
+              <View style={styles.roleTag}>
+                <Text style={styles.roleTagText}>
+                  {userRole ? userRole.toUpperCase() : 'STUDENT'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.notifBtn}
+                onPress={() => {
+                  fetchNotifications();
+                  setNotifModalVisible(true);
+                }}
+              >
+                <Text style={styles.notifBtnIcon}>🔔</Text>
+                {unreadCount > 0 && (
+                  <View style={styles.notifBadge}>
+                    <Text style={styles.notifBadgeTxt}>
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -317,42 +374,123 @@ export default function HomeScreen() {
           </View>
 
           {/* Module Content */}
-          <ScrollView contentContainerStyle={styles.workspaceBody}>
-            {activeApp === 'finder' && (
-              <FinderModule token={token} backendUrl={backendUrl} />
-            )}
-            {activeApp === 'career' && (
-              <CareerModule token={token} backendUrl={backendUrl} />
-            )}
-            {activeApp === 'placements' && (
-              <PlacementsModule token={token} backendUrl={backendUrl} />
-            )}
-            {activeApp === 'sensors' && (
-              <SensorsModule token={token} backendUrl={backendUrl} />
-            )}
-            {activeApp === 'notices' && (
-              <NoticesModule token={token} backendUrl={backendUrl} />
-            )}
-            {activeApp === 'complaints' && (
-              <ComplaintsModule
-                token={token}
-                backendUrl={backendUrl}
-                userRole={userRole}
-              />
-            )}
-            {activeApp === 'lostfound' && (
-              <LostFoundModule
-                token={token}
-                backendUrl={backendUrl}
-                userRole={userRole}
-              />
-            )}
-            {activeApp === 'sos' && (
-              <SOSModule token={token} backendUrl={backendUrl} />
-            )}
-          </ScrollView>
+          {activeApp === 'complaints' || activeApp === 'lostfound' ? (
+            <View style={{ flex: 1, padding: 12 }}>
+              {activeApp === 'complaints' && (
+                <ComplaintsModule
+                  token={token}
+                  backendUrl={backendUrl}
+                  userRole={userRole}
+                />
+              )}
+              {activeApp === 'lostfound' && (
+                <LostFoundModule
+                  token={token}
+                  backendUrl={backendUrl}
+                  userRole={userRole}
+                />
+              )}
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={styles.workspaceBody}>
+              {activeApp === 'finder' && (
+                <FinderModule token={token} backendUrl={backendUrl} />
+              )}
+              {activeApp === 'career' && (
+                <CareerModule token={token} backendUrl={backendUrl} />
+              )}
+              {activeApp === 'placements' && (
+                <PlacementsModule token={token} backendUrl={backendUrl} />
+              )}
+              {activeApp === 'sensors' && (
+                <SensorsModule token={token} backendUrl={backendUrl} />
+              )}
+              {activeApp === 'notices' && (
+                <NoticesModule token={token} backendUrl={backendUrl} />
+              )}
+              {activeApp === 'sos' && (
+                <SOSModule token={token} backendUrl={backendUrl} />
+              )}
+            </ScrollView>
+          )}
         </View>
       )}
+
+      {/* Notification Center Modal */}
+      <Modal visible={notifModalVisible} transparent animationType="slide">
+        <View style={styles.notifBackdrop}>
+          <View style={styles.notifModalCard}>
+            <View style={styles.notifModalHeader}>
+              <View>
+                <Text style={styles.notifModalTitle}>🔔 Notification Center</Text>
+                <Text style={styles.notifModalSub}>
+                  {unreadCount > 0
+                    ? `${unreadCount} unread institutional alert${unreadCount > 1 ? 's' : ''}`
+                    : 'You are all caught up!'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.notifCloseBtn}
+                onPress={() => setNotifModalVisible(false)}
+              >
+                <Text style={styles.notifCloseTxt}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {unreadCount > 0 && (
+              <TouchableOpacity style={styles.markAllBtn} onPress={markAllRead}>
+                <Text style={styles.markAllBtnTxt}>✓ Mark All as Read</Text>
+              </TouchableOpacity>
+            )}
+
+            <ScrollView contentContainerStyle={styles.notifList}>
+              {notifications.length === 0 ? (
+                <View style={styles.emptyNotifBox}>
+                  <Text style={styles.emptyNotifEmoji}>✨</Text>
+                  <Text style={styles.emptyNotifTitle}>No Notifications</Text>
+                  <Text style={styles.emptyNotifSub}>You have no alerts at this time.</Text>
+                </View>
+              ) : (
+                notifications.map((n) => {
+                  const isLostFound = n.type === 'lost_found';
+                  const badgeIcon = isLostFound
+                    ? '📦'
+                    : n.type === 'placement_drive'
+                    ? '💼'
+                    : '📢';
+                  const dateStr = n.createdAt
+                    ? new Date(n.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })
+                    : 'Recent';
+
+                  return (
+                    <View
+                      key={n._id}
+                      style={[styles.notifItem, !n.isRead && styles.notifItemUnread]}
+                    >
+                      <View style={styles.notifItemHeader}>
+                        <View style={styles.notifBadgeRow}>
+                          <Text style={styles.notifItemType}>
+                            {badgeIcon} {isLostFound ? 'LOST & FOUND' : n.type?.toUpperCase()}
+                          </Text>
+                          {!n.isRead && <View style={styles.unreadDot} />}
+                        </View>
+                        <Text style={styles.notifItemDate}>{dateStr}</Text>
+                      </View>
+                      <Text style={styles.notifItemTitle}>{n.title || 'Institutional Notice'}</Text>
+                      <Text style={styles.notifItemMsg}>{n.message}</Text>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -408,6 +546,49 @@ const styles = StyleSheet.create({
     color: '#059669',
     fontWeight: '600',
     marginTop: 2,
+  },
+  topRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  notifBtn: {
+    backgroundColor: '#FFF',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E6F4EA',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  notifBtnIcon: {
+    fontSize: 16,
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#EF4444',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+  },
+  notifBadgeTxt: {
+    color: '#FFF',
+    fontSize: 9,
+    fontWeight: '900',
   },
   roleTag: {
     backgroundColor: '#E6F4EA',
@@ -519,5 +700,127 @@ const styles = StyleSheet.create({
   },
   workspaceBody: {
     padding: 12,
+  },
+  notifBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  notifModalCard: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  notifModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  notifModalTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: '#064E3B',
+  },
+  notifModalSub: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  notifCloseBtn: {
+    backgroundColor: '#F3F4F6',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifCloseTxt: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#6B7280',
+  },
+  markAllBtn: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  markAllBtnTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#059669',
+  },
+  notifList: {
+    paddingBottom: 24,
+    gap: 10,
+  },
+  emptyNotifBox: {
+    alignItems: 'center',
+    paddingVertical: 36,
+    gap: 6,
+  },
+  emptyNotifEmoji: {
+    fontSize: 36,
+  },
+  emptyNotifTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  emptyNotifSub: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  notifItem: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 4,
+  },
+  notifItemUnread: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#A7F3D0',
+  },
+  notifItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  notifBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  notifItemType: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#059669',
+  },
+  unreadDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  notifItemDate: {
+    fontSize: 10,
+    color: '#9CA3AF',
+  },
+  notifItemTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  notifItemMsg: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 16,
   },
 });

@@ -22,8 +22,8 @@ const NotificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ["placement_drive", "eligibility_alert", "application_status", "custom_alert", "shortlist_announcement", "general"],
-    default: "placement_drive"
+    enum: ["placement_drive", "eligibility_alert", "application_status", "custom_alert", "shortlist_announcement", "general", "lost_found"],
+    default: "general"
   },
   title: {
     type: String

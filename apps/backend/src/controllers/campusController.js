@@ -15,6 +15,7 @@ const Follow = require("../models/Follow");
 const ActivityFeedPost = require("../models/ActivityFeedPost");
 const FacultyRecommendation = require("../models/FacultyRecommendation");
 const User = require("../models/User");
+const Notification = require("../models/Notification");
 const cloudinary = require("cloudinary").v2;
 const stream = require("stream");
 const PDFDocument = require("pdfkit");
@@ -433,6 +434,44 @@ exports.reportLostFound = async (req, res) => {
       status: initialStatus
     });
     await item.save();
+
+    // Smart Match: When a found item is reported, alert students with matching open lost items
+    if (type === "found") {
+      try {
+        const foundKeywords = (title + " " + description)
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, " ")
+          .split(/\s+/)
+          .filter(word => word.length >= 3);
+
+        if (foundKeywords.length > 0) {
+          const openLostReports = await LostFound.find({
+            type: "lost",
+            status: "open",
+            reporter: { $ne: req.user.id }
+          });
+
+          for (const lostReport of openLostReports) {
+            const lostText = (lostReport.title + " " + lostReport.description).toLowerCase();
+            const hasMatch = foundKeywords.some(kw => lostText.includes(kw));
+
+            if (hasMatch && lostReport.reporter) {
+              await Notification.create({
+                recipientRole: "student",
+                recipientId: lostReport.reporter,
+                source: "system",
+                type: "lost_found",
+                title: "Potential Match for Your Lost Item! 🔔",
+                message: `A found item matching "${lostReport.title}" was reported at ${location || 'campus'}. Check the Lost & Found bulletin!`
+              });
+            }
+          }
+        }
+      } catch (notifErr) {
+        console.warn("Lost&Found match notification note:", notifErr.message);
+      }
+    }
+
     res.json({ success: true, item });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -452,20 +491,61 @@ exports.updateLostFoundStatus = async (req, res) => {
     if (status) {
       item.status = status;
     }
-    if (pickupDate !== undefined) item.pickupDate = pickupDate ? new Date(pickupDate) : undefined;
+    if (pickupDate !== undefined) {
+      if (pickupDate) {
+        const parsed = new Date(pickupDate);
+        item.pickupDate = isNaN(parsed.getTime()) ? new Date(Date.now() + 86400000) : parsed;
+      } else {
+        item.pickupDate = undefined;
+      }
+    }
     if (pickupLocation !== undefined) item.pickupLocation = pickupLocation;
     if (managementNotes !== undefined) item.managementNotes = managementNotes;
 
     if (status === "ready_for_pickup") {
       item.receivedByManagement = true;
       item.receivedAt = item.receivedAt || new Date();
-      if (!item.pickupDate && pickupDate) item.pickupDate = new Date(pickupDate);
+      if (!item.pickupDate && pickupDate) {
+        const parsed = new Date(pickupDate);
+        item.pickupDate = isNaN(parsed.getTime()) ? new Date(Date.now() + 86400000) : parsed;
+      }
       if (!item.pickupLocation && pickupLocation) item.pickupLocation = pickupLocation;
+
+      // Dispatch Collection Notification to the student who reported it
+      if (item.reporter) {
+        try {
+          const pickupLoc = item.pickupLocation || "Central Management (Room 102)";
+          const pickupTime = item.pickupDate ? ` (${new Date(item.pickupDate).toLocaleDateString()})` : "";
+          await Notification.create({
+            recipientRole: "student",
+            recipientId: item.reporter,
+            source: "system",
+            type: "lost_found",
+            title: "🎉 Your Item is Ready for Pickup!",
+            message: `Your item "${item.title}" is in campus custody and ready for collection at ${pickupLoc}${pickupTime}.`
+          });
+        } catch (notifErr) {
+          console.warn("Pickup notification error:", notifErr.message);
+        }
+      }
     }
 
     if (status === "claimed") {
-      item.claimedBy = claimedBy || req.body.claimedBy || "Verified Owner";
+      item.claimedBy = claimedBy || (req.body && req.body.claimedBy) || "Verified Owner";
       item.claimedAt = new Date();
+
+      if (item.reporter) {
+        try {
+          await Notification.create({
+            recipientRole: "student",
+            recipientId: item.reporter,
+            source: "system",
+            type: "lost_found",
+            title: "Item Handover Completed ✅",
+            message: `Your item "${item.title}" has been recorded as handed over to ${item.claimedBy}.`
+          });
+        } catch (notifErr) {}
+      }
     }
 
     await item.save();
@@ -477,7 +557,7 @@ exports.updateLostFoundStatus = async (req, res) => {
 
 exports.claimLostFound = async (req, res) => {
   try {
-    const { claimedBy, managementNotes } = req.body;
+    const { claimedBy, managementNotes } = req.body || {};
     const item = await LostFound.findByIdAndUpdate(
       req.params.id,
       {
