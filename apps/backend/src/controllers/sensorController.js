@@ -4,6 +4,30 @@ const Fine = require("../models/Fine");
 const DamageLossCase = require("../models/DamageLossCase");
 const FineConfig = require("../models/FineConfig");
 const User = require("../models/User");
+const Notification = require("../models/Notification");
+
+// Helper to safely notify students via in-app notification center
+const sendStudentNotification = async ({ studentId, studentEmail, title, message }) => {
+  try {
+    let targetId = studentId;
+    if (!targetId && studentEmail) {
+      const u = await User.findOne({ email: studentEmail });
+      if (u) targetId = u._id;
+    }
+    if (targetId) {
+      await Notification.create({
+        recipientRole: "student",
+        recipientId: targetId,
+        source: "faculty",
+        type: "sensor_loan",
+        title,
+        message
+      });
+    }
+  } catch (err) {
+    console.log("Sensor notification dispatch error:", err.message);
+  }
+};
 
 // 1. SENSOR CATALOG ENDPOINTS
 exports.listSensors = async (req, res) => {
@@ -243,6 +267,24 @@ exports.approveRequest = async (req, res) => {
     request.approvedAt = new Date();
 
     await request.save();
+
+    // Send in-app notification to the student
+    if (decision === "approved") {
+      await sendStudentNotification({
+        studentId: request.studentId,
+        studentEmail: request.studentEmail,
+        title: "🔬 Sensor Loan Approved!",
+        message: `Your request for ${sensor.name} was approved! Collect it from IoT Lab (Room 302).`
+      });
+    } else {
+      await sendStudentNotification({
+        studentId: request.studentId,
+        studentEmail: request.studentEmail,
+        title: "❌ Sensor Request Update",
+        message: `Your loan request for ${sensor.name} was rejected.${approvalNote ? ` Reason: ${approvalNote}` : ""}`
+      });
+    }
+
     res.json({ 
       success: true, 
       message: `Request successfully ${decision}. Sensor available stock is now ${sensor.availableQuantity}.`, 
@@ -284,6 +326,16 @@ exports.issueRequest = async (req, res) => {
     }
 
     await request.save();
+
+    // Send in-app notification to student
+    const dueDateStr = request.dueAt ? new Date(request.dueAt).toLocaleDateString() : "the scheduled due date";
+    await sendStudentNotification({
+      studentId: request.studentId,
+      studentEmail: request.studentEmail,
+      title: "📦 Sensor Hardware Issued",
+      message: `Your loan for ${sensor.name} is now active. Please ensure it is safely returned by ${dueDateStr}.`
+    });
+
     res.json({ success: true, message: "Sensor marked as Issued.", request, sensor });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -318,16 +370,17 @@ exports.returnRequest = async (req, res) => {
       await sensor.save();
     }
 
+    const returnTime = new Date();
     request.status = "returned";
-    request.returnedAt = new Date();
+    request.returnedAt = returnTime;
     request.returnCondition = condition || "ok";
     await request.save();
 
     let fineCreated = null;
 
     // Check if late (returned late triggers fine calc)
-    if (returnedAt > request.dueAt) {
-      const lateMs = returnedAt.getTime() - request.dueAt.getTime();
+    if (request.dueAt && returnTime > request.dueAt) {
+      const lateMs = returnTime.getTime() - request.dueAt.getTime();
       const lateHours = Math.ceil(lateMs / (1000 * 60 * 60)); // round up hours
       
       if (lateHours > 0) {
@@ -363,6 +416,14 @@ exports.returnRequest = async (req, res) => {
       await dmgCase.save();
       damageCaseCreated = dmgCase;
     }
+
+    // Send in-app notification to student
+    await sendStudentNotification({
+      studentId: request.studentId,
+      studentEmail: request.studentEmail,
+      title: "✅ Sensor Return Verified",
+      message: `${sensor ? sensor.name : "Hardware"} has been safely returned and restocked in the IoT Lab inventory. Thank you!`
+    });
 
     res.json({ 
       success: true, 

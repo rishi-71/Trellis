@@ -229,17 +229,8 @@ export default function HomeScreen() {
       if (app.id === 'placements') return false;
       // 2. Complaints: Faculty cannot access
       if (app.id === 'complaints') return false;
-      // 3. Sensors: Only IoT, ECE, Electrical, Electronics faculty allowed
-      if (app.id === 'sensors') {
-        const deptLower = (facultyDept || userProfile?.department || '').toLowerCase();
-        const isAllowed =
-          deptLower.includes('iot') ||
-          deptLower.includes('electronics') ||
-          deptLower.includes('electrical') ||
-          deptLower.includes('ece') ||
-          deptLower.includes('eee');
-        if (!isAllowed) return false;
-      }
+      // 3. Sensors: All faculty allowed to access IoT Lab Desk & rentals
+      if (app.id === 'sensors') return true;
       return true;
     }
 
@@ -319,6 +310,15 @@ export default function HomeScreen() {
                     </Text>
                   </View>
                 )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.logoutTopBtn}
+                onPress={() => {
+                  globalState.setToken(null);
+                  globalState.setUserRole(null);
+                }}
+              >
+                <Text style={styles.logoutTopBtnText}>🚪 Logout</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -570,6 +570,21 @@ const styles = StyleSheet.create({
   },
   notifBtnIcon: {
     fontSize: 16,
+  },
+  logoutTopBtn: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutTopBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#991B1B',
   },
   notifBadge: {
     position: 'absolute',

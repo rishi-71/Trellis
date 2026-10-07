@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -8,7 +8,7 @@ import {
   Modal,
   ScrollView,
   ActivityIndicator, 
-  Alert 
+  Alert
 } from 'react-native';
 import { Spacing } from '@/constants/theme';
 
@@ -17,13 +17,57 @@ interface SensorsProps {
   backendUrl: string;
 }
 
+interface SensorItem {
+  _id: string;
+  name: string;
+  type?: string;
+  department?: string;
+  totalQuantity: number;
+  availableQuantity: number;
+  conditionSummary?: string;
+}
+
+interface SensorLoanRequest {
+  _id: string;
+  sensorId?: SensorItem | any;
+  sensorName?: string;
+  studentId?: string;
+  studentName: string;
+  studentEmail?: string;
+  enrollmentNo: string;
+  branch: string;
+  phone: string;
+  duration: string;
+  purpose: string;
+  projectName?: string;
+  status: 'pending' | 'approved' | 'issued' | 'returned' | 'rejected' | 'lost';
+  dueAt?: string;
+  issuedAt?: string;
+  returnedAt?: string;
+  approverName?: string;
+  approvalNote?: string;
+  returnCondition?: string;
+  createdAt?: string;
+}
+
 export default function SensorsModule({ token, backendUrl }: SensorsProps) {
   const [loading, setLoading] = useState(false);
-  const [sensors, setSensors] = useState<any[]>([]);
-  const [myRequests, setMyRequests] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'catalog' | 'requests'>('catalog');
+  const [sensors, setSensors] = useState<SensorItem[]>([]);
+  const [allRequests, setAllRequests] = useState<SensorLoanRequest[]>([]);
+  
+  // Navigation Tabs
+  const [activeTab, setActiveTab] = useState<'catalog' | 'my_loans' | 'lab_desk'>('catalog');
 
-  // User Profile Defaults
+  // Search & Filter in Catalog
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | 'microcontroller' | 'sensor' | 'actuator' | 'in_stock'>('all');
+
+  // Lab Desk Status Filter (Faculty)
+  const [labDeskFilter, setLabDeskFilter] = useState<'all' | 'pending' | 'active' | 'returned'>('pending');
+
+  // User Profile
+  const [userId, setUserId] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState<'student' | 'faculty' | 'admin'>('student');
   const [defaultName, setDefaultName] = useState('');
   const [defaultEnrollment, setDefaultEnrollment] = useState('');
@@ -31,7 +75,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
   const [defaultPhone, setDefaultPhone] = useState('');
 
   // Modal State for Apply Form
-  const [selectedSensor, setSelectedSensor] = useState<any | null>(null);
+  const [selectedSensor, setSelectedSensor] = useState<SensorItem | null>(null);
   const [studentName, setStudentName] = useState('');
   const [enrollmentNo, setEnrollmentNo] = useState('');
   const [branch, setBranch] = useState('');
@@ -40,12 +84,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
   const [purpose, setPurpose] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Modal State for Faculty Issued Students List
-  const [viewingIssuedSensor, setViewingIssuedSensor] = useState<any | null>(null);
-  const [issuedStudents, setIssuedStudents] = useState<any[]>([]);
-  const [loadingIssued, setLoadingIssued] = useState(false);
-
-  // 1. Fetch User Profile for Autofill
+  // 1. Fetch User Profile
   useEffect(() => {
     if (!token) return;
     fetch(`${backendUrl}/api/auth/me`, {
@@ -54,7 +93,14 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          if (data.user?.role) setUserRole(data.user.role);
+          if (data.user?._id) setUserId(data.user._id);
+          if (data.user?.email) setUserEmail(data.user.email);
+          if (data.user?.role) {
+            setUserRole(data.user.role);
+            if (data.user.role === 'faculty' || data.user.role === 'admin') {
+              setActiveTab('lab_desk');
+            }
+          }
           if (data.profile) {
             const p = data.profile;
             const n = p.name || data.user?.name || '';
@@ -74,7 +120,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
           }
         }
       })
-      .catch((err) => console.log('Error fetching user profile:', err));
+      .catch((err) => console.log('Profile fetch note:', err.message));
   }, [token, backendUrl]);
 
   // 2. Fetch Module Data
@@ -87,14 +133,13 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
       const sData = await sRes.json();
       if (sData.success) setSensors(sData.sensors || []);
 
-      // Fetch requests
       const srRes = await fetch(`${backendUrl}/api/sensors-module/sensor-requests/all`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const srData = await srRes.json();
-      if (srData.success) setMyRequests(srData.requests || []);
+      if (srData.success) setAllRequests(srData.requests || []);
     } catch (err: any) {
-      console.log('Error fetching sensor module:', err.message);
+      console.log('Sensor module fetch note:', err.message);
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -104,15 +149,57 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
     fetchSensorsData();
   }, [fetchSensorsData]);
 
-  // 3. Dynamic Auto-Sync: Polls every 4 seconds so updates appear without app refresh
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchSensorsData(true);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [fetchSensorsData]);
+  // Filter requests belonging to the student
+  const myRequests = useMemo(() => {
+    if (!userId && !userEmail && !defaultEnrollment) return allRequests;
+    return allRequests.filter((r) => {
+      if (r.studentId && r.studentId === userId) return true;
+      if (r.studentEmail && userEmail && r.studentEmail.toLowerCase() === userEmail.toLowerCase()) return true;
+      if (r.enrollmentNo && defaultEnrollment && r.enrollmentNo.toLowerCase() === defaultEnrollment.toLowerCase()) return true;
+      return false;
+    });
+  }, [allRequests, userId, userEmail, defaultEnrollment]);
 
-  const handleOpenApply = (sensor: any) => {
+  // Filtered Catalog
+  const filteredSensors = useMemo(() => {
+    return sensors.filter((sensor) => {
+      const q = searchQuery.trim().toLowerCase();
+      const matchesSearch = !q || 
+        sensor.name.toLowerCase().includes(q) || 
+        (sensor.department && sensor.department.toLowerCase().includes(q)) ||
+        (sensor.type && sensor.type.toLowerCase().includes(q));
+
+      if (!matchesSearch) return false;
+
+      if (selectedCategory === 'in_stock') return sensor.availableQuantity > 0;
+      if (selectedCategory === 'microcontroller') {
+        const name = sensor.name.toLowerCase();
+        return name.includes('esp') || name.includes('arduino') || name.includes('pico') || name.includes('stm') || name.includes('board');
+      }
+      if (selectedCategory === 'sensor') {
+        const name = sensor.name.toLowerCase();
+        return name.includes('sensor') || name.includes('dht') || name.includes('mq') || name.includes('ultrasonic') || name.includes('pir') || name.includes('ir');
+      }
+      if (selectedCategory === 'actuator') {
+        const name = sensor.name.toLowerCase();
+        return name.includes('relay') || name.includes('servo') || name.includes('motor') || name.includes('oled') || name.includes('display') || name.includes('module');
+      }
+      return true;
+    });
+  }, [sensors, searchQuery, selectedCategory]);
+
+  // Filtered Lab Desk Requests (Faculty)
+  const filteredLabDeskRequests = useMemo(() => {
+    return allRequests.filter((req) => {
+      if (labDeskFilter === 'pending') return req.status === 'pending';
+      if (labDeskFilter === 'active') return req.status === 'approved' || req.status === 'issued';
+      if (labDeskFilter === 'returned') return req.status === 'returned';
+      return true;
+    });
+  }, [allRequests, labDeskFilter]);
+
+  // Open Apply Modal
+  const handleOpenApply = (sensor: SensorItem) => {
     setSelectedSensor(sensor);
     setStudentName(studentName || defaultName || '');
     setEnrollmentNo(enrollmentNo || defaultEnrollment || '');
@@ -122,6 +209,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
     setPurpose('');
   };
 
+  // Submit Application
   const handleSubmitApply = async () => {
     if (!selectedSensor) return;
     if (!studentName.trim() || !enrollmentNo.trim() || !branch.trim() || !phone.trim() || !purpose.trim()) {
@@ -150,25 +238,24 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert('Request Submitted', 'Your sensor rental request was submitted and is pending faculty review.');
+        Alert.alert('Submitted', 'Your loan request has been sent for faculty approval.');
         setSelectedSensor(null);
         setPurpose('');
-        setActiveTab('requests');
-        fetchSensorsData();
+        setActiveTab('my_loans');
+        fetchSensorsData(true);
       } else {
-        Alert.alert('Error', data.message || 'Failed to submit request.');
+        Alert.alert('Notice', data.message || 'Failed to submit request.');
       }
     } catch (err: any) {
-      Alert.alert('Error', 'Connection error submitting request.');
+      Alert.alert('Notice', 'Network error submitting request.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Faculty Actions
+  // Faculty Decision (Approve / Reject)
   const handleDecision = async (requestId: string, decision: 'approved' | 'rejected') => {
-    // Optimistic UI update
-    setMyRequests((prev) =>
+    setAllRequests((prev) =>
       prev.map((r) => (r._id === requestId ? { ...r, status: decision } : r))
     );
 
@@ -183,17 +270,39 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert('Updated', `Request has been ${decision}!`);
         fetchSensorsData(true);
       }
-    } catch (err) {
-      Alert.alert('Error', 'Failed to update request.');
+    } catch (_) {
       fetchSensorsData(true);
     }
   };
 
+  // Handover / Mark Issued
+  const handleIssue = async (requestId: string) => {
+    setAllRequests((prev) =>
+      prev.map((r) => (r._id === requestId ? { ...r, status: 'issued' } : r))
+    );
+
+    try {
+      const res = await fetch(`${backendUrl}/api/sensors-module/sensor-requests/${requestId}/issue`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        }
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchSensorsData(true);
+      }
+    } catch (_) {
+      fetchSensorsData(true);
+    }
+  };
+
+  // Mark Returned
   const handleReturn = async (requestId: string) => {
-    setMyRequests((prev) =>
+    setAllRequests((prev) =>
       prev.map((r) => (r._id === requestId ? { ...r, status: 'returned' } : r))
     );
 
@@ -208,93 +317,155 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert('Returned', 'Sensor marked as Returned & inventory restored!');
         fetchSensorsData(true);
       }
-    } catch (err) {
-      Alert.alert('Error', 'Failed to return sensor.');
+    } catch (_) {
       fetchSensorsData(true);
     }
   };
 
-  const handleViewIssued = async (sensor: any) => {
-    setViewingIssuedSensor(sensor);
-    setLoadingIssued(true);
-    try {
-      const res = await fetch(`${backendUrl}/api/sensors-module/sensors/${sensor._id}/issued-students`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success) {
-        setIssuedStudents(data.requests || []);
-      }
-    } catch (err: any) {
-      console.log('Error fetching issued students:', err.message);
-    } finally {
-      setLoadingIssued(false);
+  // Status Badge Helper
+  const getBadgeConfig = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return { label: 'Approved', bg: '#D1FAE5', color: '#065F46' };
+      case 'issued':
+        return { label: 'Active Loan', bg: '#ECFDF5', color: '#047857' };
+      case 'returned':
+        return { label: 'Returned', bg: '#F3F4F6', color: '#4B5563' };
+      case 'rejected':
+        return { label: 'Rejected', bg: '#FEE2E2', color: '#991B1B' };
+      default:
+        return { label: 'Pending', bg: '#FEF3C7', color: '#92400E' };
     }
   };
 
+  const isFacultyOrAdmin = userRole === 'faculty' || userRole === 'admin';
+
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>🔬 IoT Sensor Issuing & Rentals</Text>
+      {/* Module Title Bar */}
+      <View style={styles.headerRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardTitle}>🔬 IoT Sensor Rentals</Text>
+          <Text style={styles.cardSubtitle}>ECE & IoT Lab Inventory • Room 302</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.refreshIconBtn} 
+          onPress={() => fetchSensorsData(true)}
+        >
+          <Text style={{ fontSize: 13 }}>🔄</Text>
+        </TouchableOpacity>
+      </View>
 
-      {/* Tabs */}
+      {/* Role-Aware Navigation Tabs (Clean 2-Tab Layout per role to prevent any overflow) */}
       <View style={styles.tabContainer}>
         <TouchableOpacity 
           style={[styles.tabBtn, activeTab === 'catalog' && styles.tabBtnActive]} 
           onPress={() => setActiveTab('catalog')}
         >
           <Text style={[styles.tabBtnTxt, activeTab === 'catalog' && styles.tabBtnTxtActive]}>
-            📦 Sensor Catalog ({sensors.length})
+            📦 Catalog ({sensors.length})
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tabBtn, activeTab === 'requests' && styles.tabBtnActive]} 
-          onPress={() => setActiveTab('requests')}
-        >
-          <Text style={[styles.tabBtnTxt, activeTab === 'requests' && styles.tabBtnTxtActive]}>
-            📋 Requests & Loans ({myRequests.length})
-          </Text>
-        </TouchableOpacity>
+        
+        {isFacultyOrAdmin ? (
+          <TouchableOpacity 
+            style={[styles.tabBtn, activeTab === 'lab_desk' && styles.tabBtnActive]} 
+            onPress={() => setActiveTab('lab_desk')}
+          >
+            <Text style={[styles.tabBtnTxt, activeTab === 'lab_desk' && styles.tabBtnTxtActive]}>
+              🛠️ Lab Desk ({allRequests.filter(r => r.status === 'pending').length} New)
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity 
+            style={[styles.tabBtn, activeTab === 'my_loans' && styles.tabBtnActive]} 
+            onPress={() => setActiveTab('my_loans')}
+          >
+            <Text style={[styles.tabBtnTxt, activeTab === 'my_loans' && styles.tabBtnTxtActive]}>
+              📋 My Loans ({myRequests.length})
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {loading && sensors.length === 0 && <ActivityIndicator size="small" color="#10B981" style={{ marginVertical: 12 }} />}
+      {loading && sensors.length === 0 && (
+        <ActivityIndicator size="small" color="#10B981" style={{ marginVertical: 12 }} />
+      )}
 
-      {/* TAB 1: CATALOG */}
+      {/* ==================== TAB 1: CATALOG ==================== */}
       {activeTab === 'catalog' && (
-        <View style={{ marginTop: 12 }}>
-          {sensors.length === 0 ? (
-            <Text style={styles.emptyText}>No sensors catalog items found.</Text>
+        <View style={{ marginTop: 4 }}>
+          {/* Compact Search Box */}
+          <View style={styles.searchContainer}>
+            <TextInput 
+              style={styles.searchInput}
+              placeholder="🔍 Search sensors, ESP32, Arduino..."
+              placeholderTextColor="#9CA3AF"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
+                <Text style={{ fontSize: 12, color: '#6B7280' }}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Quick Filter Pills */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'in_stock', label: 'In Stock' },
+              { id: 'microcontroller', label: 'MCUs' },
+              { id: 'sensor', label: 'Sensors' },
+              { id: 'actuator', label: 'Modules' }
+            ].map((pill) => (
+              <TouchableOpacity
+                key={pill.id}
+                style={[
+                  styles.filterPill,
+                  selectedCategory === pill.id && styles.filterPillActive
+                ]}
+                onPress={() => setSelectedCategory(pill.id as any)}
+              >
+                <Text style={[
+                  styles.filterPillText,
+                  selectedCategory === pill.id && styles.filterPillTextActive
+                ]}>
+                  {pill.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* Minimalist Catalog Cards */}
+          {filteredSensors.length === 0 ? (
+            <Text style={styles.emptyText}>No sensors found matching your search.</Text>
           ) : (
-            sensors.map((sensor, idx) => {
+            filteredSensors.map((sensor) => {
               const inStock = sensor.availableQuantity > 0;
               return (
-                <View key={sensor._id || idx} style={styles.sensorCard}>
+                <View key={sensor._id} style={styles.sensorCard}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
-                    <Text style={styles.sensorName}>{sensor.name}</Text>
-                    <Text style={styles.sensorSub}>Dept: {sensor.department}</Text>
-                    <Text style={[styles.stockText, { color: inStock ? '#047857' : '#EF4444' }]}>
-                      {inStock ? `🟢 Available: ${sensor.availableQuantity} / ${sensor.totalQuantity}` : '🔴 Out of Stock'}
+                    <Text style={styles.sensorName} numberOfLines={1}>
+                      {sensor.name}
+                    </Text>
+                    <Text style={styles.sensorSub} numberOfLines={1}>
+                      {sensor.department || 'IoT Lab'} • {sensor.availableQuantity} of {sensor.totalQuantity} available
                     </Text>
                   </View>
 
-                  <View style={{ gap: 6 }}>
-                    <TouchableOpacity 
-                      style={[styles.applyBtn, !inStock && styles.disabledBtn]} 
-                      disabled={!inStock}
-                      onPress={() => handleOpenApply(sensor)}
-                    >
-                      <Text style={styles.applyBtnTxt}>{inStock ? 'Apply for Rent' : 'Out of Stock'}</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity 
-                      style={styles.historyBtn} 
-                      onPress={() => handleViewIssued(sensor)}
-                    >
-                      <Text style={styles.historyBtnTxt}>👥 View Loans</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <TouchableOpacity 
+                    style={[styles.applyBtn, !inStock && styles.disabledBtn]} 
+                    disabled={!inStock}
+                    onPress={() => handleOpenApply(sensor)}
+                  >
+                    <Text style={styles.applyBtnTxt}>
+                      {inStock ? 'Rent' : 'Out'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               );
             })
@@ -302,76 +473,146 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
         </View>
       )}
 
-      {/* TAB 2: REQUESTS & STATUS */}
-      {activeTab === 'requests' && (
-        <View style={{ marginTop: 12 }}>
+      {/* ==================== TAB 2: MY LOANS (STUDENT) ==================== */}
+      {activeTab === 'my_loans' && (
+        <View style={{ marginTop: 4 }}>
           {myRequests.length === 0 ? (
-            <Text style={styles.emptyText}>No sensor requests recorded yet.</Text>
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyTitle}>No Active Rental Loans</Text>
+              <Text style={styles.emptyText}>
+                You haven't requested any sensors yet. Browse the catalog to apply for lab hardware.
+              </Text>
+            </View>
           ) : (
-            myRequests.map((req, idx) => {
-              let badgeBg = '#FEF3C7';
-              let badgeColor = '#92400E';
-              let badgeText = 'PENDING REVIEW';
-
-              if (req.status === 'approved' || req.status === 'issued') {
-                badgeBg = '#D1FAE5';
-                badgeColor = '#065F46';
-                badgeText = 'APPROVED / ACTIVE';
-              } else if (req.status === 'rejected') {
-                badgeBg = '#FEE2E2';
-                badgeColor = '#991B1B';
-                badgeText = 'REJECTED';
-              } else if (req.status === 'returned') {
-                badgeBg = '#F3F4F6';
-                badgeColor = '#4B5563';
-                badgeText = 'RETURNED';
-              }
+            myRequests.map((req) => {
+              const badge = getBadgeConfig(req.status);
+              const sensorTitle = req.sensorId?.name || req.sensorName || 'Hardware Unit';
 
               return (
-                <View key={req._id || idx} style={styles.requestCard}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <Text style={styles.sensorName}>{req.sensorId?.name || req.sensorName || 'Sensor'}</Text>
-                    <View style={[styles.badge, { backgroundColor: badgeBg }]}>
-                      <Text style={[styles.badgeTxt, { color: badgeColor }]}>{badgeText}</Text>
+                <View key={req._id} style={styles.compactRequestCard}>
+                  {/* Row 1: Sensor Name + Status Chip (No Overflow) */}
+                  <View style={styles.cardHeaderRow}>
+                    <Text style={styles.cardHeaderTitle} numberOfLines={1} ellipsizeMode="tail">
+                      {sensorTitle}
+                    </Text>
+                    <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+                      <Text style={[styles.badgeTxt, { color: badge.color }]}>{badge.label}</Text>
                     </View>
                   </View>
 
-                  <Text style={styles.reqDetail}>👤 {req.studentName} ({req.enrollmentNo}) - {req.branch}</Text>
-                  <Text style={styles.reqDetail}>⏱️ Duration: {req.duration} | 📞 {req.phone}</Text>
-                  <Text style={styles.reqDetail}>📝 Purpose: {req.purpose}</Text>
-                  {req.approvalNote ? (
-                    <Text style={[styles.reqDetail, { fontStyle: 'italic', color: '#047857', marginTop: 2 }]}>
+                  {/* Row 2: Duration & Status Context */}
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaText}>
+                      ⏱️ {req.duration}
+                      {req.dueAt ? ` • Due: ${new Date(req.dueAt).toLocaleDateString()}` : ''}
+                    </Text>
+                  </View>
+
+                  {/* Row 3: Actionable Guidance */}
+                  {req.status === 'approved' && (
+                    <Text style={styles.pickupHint}>
+                      📍 Ready for pickup at IoT Lab Room 302
+                    </Text>
+                  )}
+                  {req.status === 'pending' && (
+                    <Text style={styles.pendingHint}>
+                      ⏳ Awaiting faculty review
+                    </Text>
+                  )}
+                  {req.status === 'rejected' && req.approvalNote ? (
+                    <Text style={styles.rejectHint}>
                       Note: {req.approvalNote}
                     </Text>
                   ) : null}
+                </View>
+              );
+            })
+          )}
+        </View>
+      )}
 
-                  {/* Faculty Actions */}
-                  {(userRole === 'faculty' || userRole === 'admin') && (
-                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F3F4F6' }}>
-                      {req.status === 'pending' && (
-                        <>
-                          <TouchableOpacity 
-                            style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
-                            onPress={() => handleDecision(req._id, 'approved')}
-                          >
-                            <Text style={styles.actionBtnTxt}>✓ Approve</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity 
-                            style={[styles.actionBtn, { backgroundColor: '#EF4444' }]}
-                            onPress={() => handleDecision(req._id, 'rejected')}
-                          >
-                            <Text style={styles.actionBtnTxt}>✕ Reject</Text>
-                          </TouchableOpacity>
-                        </>
-                      )}
-                      {(req.status === 'approved' || req.status === 'issued') && (
-                        <TouchableOpacity 
-                          style={[styles.actionBtn, { backgroundColor: '#374151' }]}
-                          onPress={() => handleReturn(req._id)}
-                        >
-                          <Text style={styles.actionBtnTxt}>🔄 Mark Returned</Text>
-                        </TouchableOpacity>
-                      )}
+      {/* ==================== TAB 3: LAB DESK (FACULTY) ==================== */}
+      {activeTab === 'lab_desk' && isFacultyOrAdmin && (
+        <View style={{ marginTop: 4 }}>
+          {/* Quick Status Filter Tabs */}
+          <View style={styles.labFilterRow}>
+            {(['pending', 'active', 'returned', 'all'] as const).map((filterKey) => (
+              <TouchableOpacity
+                key={filterKey}
+                style={[styles.labFilterBtn, labDeskFilter === filterKey && styles.labFilterBtnActive]}
+                onPress={() => setLabDeskFilter(filterKey)}
+              >
+                <Text style={[styles.labFilterBtnText, labDeskFilter === filterKey && styles.labFilterBtnTextActive]}>
+                  {filterKey === 'pending' ? 'Pending' : filterKey === 'active' ? 'Active' : filterKey === 'returned' ? 'Returned' : 'All'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {filteredLabDeskRequests.length === 0 ? (
+            <Text style={styles.emptyText}>No requests in this category.</Text>
+          ) : (
+            filteredLabDeskRequests.map((req) => {
+              const badge = getBadgeConfig(req.status);
+              const sensorTitle = req.sensorId?.name || req.sensorName || 'Hardware Unit';
+
+              return (
+                <View key={req._id} style={styles.compactRequestCard}>
+                  {/* Row 1: Sensor Name + Status Chip (Never goes off screen) */}
+                  <View style={styles.cardHeaderRow}>
+                    <Text style={styles.cardHeaderTitle} numberOfLines={1} ellipsizeMode="tail">
+                      {sensorTitle}
+                    </Text>
+                    <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+                      <Text style={[styles.badgeTxt, { color: badge.color }]}>{badge.label}</Text>
+                    </View>
+                  </View>
+
+                  {/* Row 2: Student & Duration Details */}
+                  <Text style={styles.studentDetailText} numberOfLines={1}>
+                    👤 {req.studentName} ({req.enrollmentNo}) • {req.duration}
+                  </Text>
+                  <Text style={styles.purposeText} numberOfLines={1}>
+                    📝 {req.purpose}
+                  </Text>
+
+                  {/* Row 3: Action Buttons */}
+                  {req.status === 'pending' && (
+                    <View style={styles.facultyActionRow}>
+                      <TouchableOpacity 
+                        style={[styles.facultyBtn, { backgroundColor: '#10B981' }]}
+                        onPress={() => handleDecision(req._id, 'approved')}
+                      >
+                        <Text style={styles.facultyBtnTxt}>✓ Approve</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.facultyBtn, { backgroundColor: '#EF4444' }]}
+                        onPress={() => handleDecision(req._id, 'rejected')}
+                      >
+                        <Text style={styles.facultyBtnTxt}>✕ Reject</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {req.status === 'approved' && (
+                    <View style={styles.facultyActionRow}>
+                      <TouchableOpacity 
+                        style={[styles.facultyBtn, { backgroundColor: '#0284C7' }]}
+                        onPress={() => handleIssue(req._id)}
+                      >
+                        <Text style={styles.facultyBtnTxt}>📦 Mark Handed Over</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {req.status === 'issued' && (
+                    <View style={styles.facultyActionRow}>
+                      <TouchableOpacity 
+                        style={[styles.facultyBtn, { backgroundColor: '#059669' }]}
+                        onPress={() => handleReturn(req._id)}
+                      >
+                        <Text style={styles.facultyBtnTxt}>🔄 Mark Returned</Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                 </View>
@@ -381,64 +622,60 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
         </View>
       )}
 
-      {/* APPLY FOR RENT MODAL (AUTO-FILLED & EDITABLE) */}
+      {/* ==================== CLEAN APPLY MODAL ==================== */}
       <Modal visible={!!selectedSensor} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>📝 Apply for Sensor Rental</Text>
-            {selectedSensor && (
-              <Text style={styles.modalSub}>{selectedSensor.name} ({selectedSensor.department})</Text>
-            )}
-            <Text style={{ fontSize: 10, color: '#065F46', marginBottom: 6 }}>
-              ✨ Details auto-filled from your profile. Edit if needed.
-            </Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Rent Sensor</Text>
+              <TouchableOpacity onPress={() => setSelectedSensor(null)} style={{ padding: 4 }}>
+                <Text style={{ fontSize: 16, color: '#9CA3AF' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
 
-            <ScrollView style={{ maxHeight: 380, marginVertical: 8 }}>
-              <Text style={styles.label}>Student Full Name *</Text>
+            {selectedSensor && (
+              <View style={styles.selectedSensorHighlight}>
+                <Text style={styles.selectedSensorName}>{selectedSensor.name}</Text>
+                <Text style={styles.selectedSensorStock}>
+                  Available: {selectedSensor.availableQuantity} of {selectedSensor.totalQuantity}
+                </Text>
+              </View>
+            )}
+
+            <ScrollView style={{ maxHeight: 300, marginVertical: 6 }} showsVerticalScrollIndicator={false}>
+              <Text style={styles.label}>Student Name *</Text>
               <TextInput 
                 style={styles.input} 
-                placeholder="e.g. Rishi Patole" 
                 value={studentName} 
                 onChangeText={setStudentName} 
               />
 
-              <Text style={styles.label}>Enrollment Number *</Text>
+              <Text style={styles.label}>Enrollment No. *</Text>
               <TextInput 
                 style={styles.input} 
-                placeholder="e.g. 0808CS211045" 
                 value={enrollmentNo} 
                 onChangeText={setEnrollmentNo} 
               />
 
-              <Text style={styles.label}>Branch / Department *</Text>
-              <TextInput 
-                style={styles.input} 
-                placeholder="e.g. CSE / ECE / IoT" 
-                value={branch} 
-                onChangeText={setBranch} 
-              />
+              <Text style={styles.label}>Duration *</Text>
+              <View style={styles.durationRow}>
+                {['3 Days', '7 Days', '14 Days'].map((d) => (
+                  <TouchableOpacity
+                    key={d}
+                    style={[styles.durationChip, duration === d && styles.durationChipActive]}
+                    onPress={() => setDuration(d)}
+                  >
+                    <Text style={[styles.durationChipText, duration === d && styles.durationChipTextActive]}>
+                      {d}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-              <Text style={styles.label}>Contact Phone Number *</Text>
+              <Text style={styles.label}>Purpose *</Text>
               <TextInput 
-                style={styles.input} 
-                placeholder="e.g. 9876543210" 
-                keyboardType="phone-pad"
-                value={phone} 
-                onChangeText={setPhone} 
-              />
-
-              <Text style={styles.label}>Duration of Rental *</Text>
-              <TextInput 
-                style={styles.input} 
-                placeholder="e.g. 7 Days, 14 Days, 1 Month" 
-                value={duration} 
-                onChangeText={setDuration} 
-              />
-
-              <Text style={styles.label}>Purpose of Rental *</Text>
-              <TextInput 
-                style={[styles.input, { height: 70 }]} 
-                placeholder="Describe project or lab purpose..." 
+                style={[styles.input, { height: 55, textAlignVertical: 'top' }]} 
+                placeholder="Lab or project purpose..." 
                 multiline 
                 value={purpose} 
                 onChangeText={setPurpose} 
@@ -450,7 +687,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
                 style={[styles.modalBtn, { backgroundColor: '#E5E7EB' }]} 
                 onPress={() => setSelectedSensor(null)}
               >
-                <Text style={{ fontWeight: 'bold', color: '#374151' }}>Cancel</Text>
+                <Text style={{ fontWeight: 'bold', color: '#374151', fontSize: 12 }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.modalBtn, { backgroundColor: '#10B981' }]} 
@@ -460,47 +697,10 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
                 {submitting ? (
                   <ActivityIndicator color="#FFF" size="small" />
                 ) : (
-                  <Text style={{ fontWeight: 'bold', color: '#FFF' }}>Submit Request</Text>
+                  <Text style={{ fontWeight: 'bold', color: '#FFF', fontSize: 12 }}>Submit</Text>
                 )}
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* VIEW ISSUED STUDENTS MODAL */}
-      <Modal visible={!!viewingIssuedSensor} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>👥 Active Loans & Issued Students</Text>
-            {viewingIssuedSensor && (
-              <Text style={styles.modalSub}>{viewingIssuedSensor.name}</Text>
-            )}
-
-            {loadingIssued ? (
-              <ActivityIndicator color="#10B981" style={{ marginVertical: 24 }} />
-            ) : (
-              <ScrollView style={{ maxHeight: 350, marginVertical: 8 }}>
-                {issuedStudents.length === 0 ? (
-                  <Text style={styles.emptyText}>No student loans on record for this sensor.</Text>
-                ) : (
-                  issuedStudents.map((st, idx) => (
-                    <View key={st._id || idx} style={styles.issuedCard}>
-                      <Text style={styles.issuedName}>{st.studentName} ({st.enrollmentNo})</Text>
-                      <Text style={styles.issuedDetail}>{st.branch} | 📞 {st.phone}</Text>
-                      <Text style={styles.issuedDetail}>⏱️ Duration: {st.duration} | Status: {st.status.toUpperCase()}</Text>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
-            )}
-
-            <TouchableOpacity 
-              style={[styles.modalBtn, { backgroundColor: '#374151', marginTop: 12 }]} 
-              onPress={() => setViewingIssuedSensor(null)}
-            >
-              <Text style={{ fontWeight: 'bold', color: '#FFF', textAlign: 'center' }}>Close</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -511,30 +711,48 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 20,
-    padding: Spacing.four,
+    borderRadius: 18,
+    padding: Spacing.three,
     borderWidth: 1,
     borderColor: '#E6F4EA',
     marginBottom: 40,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   cardTitle: {
-    fontSize: 17,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
     color: '#064E3B',
-    marginBottom: Spacing.two,
+  },
+  cardSubtitle: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 1,
+  },
+  refreshIconBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 3,
     marginBottom: 8,
   },
   tabBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 7,
     alignItems: 'center',
-    borderRadius: 9,
+    borderRadius: 8,
   },
   tabBtnActive: {
     backgroundColor: '#FFF',
@@ -545,173 +763,309 @@ const styles = StyleSheet.create({
   },
   tabBtnTxt: {
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#6B7280',
   },
   tabBtnTxtActive: {
     color: '#065F46',
   },
-  emptyText: {
-    color: '#6B7280',
-    fontSize: 12,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginVertical: 16,
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    marginBottom: 6,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 6,
+    fontSize: 11,
+    color: '#111827',
+  },
+  filterScroll: {
+    marginBottom: 8,
+  },
+  filterPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    marginRight: 5,
+  },
+  filterPillActive: {
+    backgroundColor: '#064E3B',
+  },
+  filterPillText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  filterPillTextActive: {
+    color: '#FFF',
   },
   sensorCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     backgroundColor: '#F9FAFB',
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    marginBottom: 10,
+    marginBottom: 6,
   },
   sensorName: {
-    fontWeight: 'bold',
-    fontSize: 13,
-    color: '#1F2937',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
   },
   sensorSub: {
     fontSize: 10,
     color: '#6B7280',
     marginTop: 1,
   },
-  stockText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginTop: 4,
-  },
   applyBtn: {
     backgroundColor: '#10B981',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   disabledBtn: {
-    backgroundColor: '#D1D5DB',
+    backgroundColor: '#E5E7EB',
   },
   applyBtnTxt: {
     color: '#FFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  historyBtn: {
-    backgroundColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    alignItems: 'center',
-  },
-  historyBtnTxt: {
-    color: '#374151',
-    fontSize: 9,
-    fontWeight: 'bold',
-  },
-  requestCard: {
-    padding: 12,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 10,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  badgeTxt: {
-    fontSize: 9,
-    fontWeight: 'bold',
-  },
-  reqDetail: {
     fontSize: 11,
-    color: '#4B5563',
-    marginTop: 2,
+    fontWeight: '700',
   },
-  actionBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  actionBtnTxt: {
-    color: '#FFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: '#FFF',
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  modalSub: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
-    marginBottom: 6,
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#374151',
-    marginTop: 8,
-    marginBottom: 3,
-  },
-  input: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    fontSize: 12,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
-  },
-  modalBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  issuedCard: {
+  compactRequestCard: {
     padding: 10,
     backgroundColor: '#F9FAFB',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  issuedName: {
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  cardHeaderTitle: {
+    flex: 1,
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#111827',
   },
-  issuedDetail: {
+  badge: {
+    flexShrink: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  badgeTxt: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 1,
+  },
+  metaText: {
     fontSize: 10,
-    color: '#4B5563',
+    color: '#6B7280',
+  },
+  pickupHint: {
+    fontSize: 10,
+    color: '#065F46',
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  pendingHint: {
+    fontSize: 10,
+    color: '#92400E',
+    marginTop: 3,
+  },
+  rejectHint: {
+    fontSize: 10,
+    color: '#991B1B',
+    marginTop: 3,
+  },
+  studentDetailText: {
+    fontSize: 10,
+    color: '#374151',
+    fontWeight: '600',
     marginTop: 2,
+  },
+  purposeText: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 1,
+  },
+  facultyActionRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  facultyBtn: {
+    flex: 1,
+    paddingVertical: 5,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  facultyBtnTxt: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  labFilterRow: {
+    flexDirection: 'row',
+    gap: 5,
+    marginBottom: 8,
+  },
+  labFilterBtn: {
+    flex: 1,
+    paddingVertical: 5,
+    alignItems: 'center',
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+  },
+  labFilterBtnActive: {
+    backgroundColor: '#064E3B',
+  },
+  labFilterBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  labFilterBtnTextActive: {
+    color: '#FFF',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 18,
+  },
+  emptyTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  emptyText: {
+    color: '#6B7280',
+    fontSize: 11,
+    textAlign: 'center',
+    marginVertical: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  modalTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  selectedSensorHighlight: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    padding: 6,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  selectedSensorName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  selectedSensorStock: {
+    fontSize: 9,
+    color: '#047857',
+    marginTop: 1,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#374151',
+    marginTop: 5,
+    marginBottom: 2,
+  },
+  input: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    fontSize: 11,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    gap: 5,
+    marginBottom: 2,
+  },
+  durationChip: {
+    flex: 1,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+  },
+  durationChipActive: {
+    backgroundColor: '#064E3B',
+    borderColor: '#064E3B',
+  },
+  durationChipText: {
+    fontSize: 9,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  durationChipTextActive: {
+    color: '#FFF',
+    fontWeight: '700',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
   },
 });
