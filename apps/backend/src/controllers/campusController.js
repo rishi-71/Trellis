@@ -242,13 +242,40 @@ exports.applyToJob = async (req, res) => {
 // -------------------------------------------------------------
 exports.createSOS = async (req, res) => {
   try {
-    const { location } = req.body;
+    const { location, emergencyType } = req.body;
     const alert = new SOSAlert({
       student: req.user.id,
-      location: location || "Unknown Location"
+      location: location || "Unknown Location",
+      emergencyType: emergencyType || "security"
     });
     await alert.save();
-    res.json({ success: true, alert, message: "SOS Emergency Alert dispatched to Security Officers!" });
+    await alert.populate("student", "email name role");
+
+    // Real-time broadcast to all connected Management & Faculty sockets
+    if (global.io) {
+      global.io.emit("sos:alert", alert);
+    }
+
+    // Also persist in-app notification records for faculty and admin users
+    try {
+      const staffUsers = await User.find({ role: { $in: ["faculty", "admin"] } });
+      const notifs = staffUsers.map(u => ({
+        recipientRole: u.role,
+        recipientId: u._id,
+        source: "system",
+        type: "custom_alert",
+        title: `🚨 EMERGENCY SOS: ${(emergencyType || 'SECURITY').toUpperCase()}`,
+        message: `Student at ${location || 'Campus'} triggered an emergency distress alert!`,
+        isRead: false
+      }));
+      if (notifs.length > 0) {
+        await Notification.insertMany(notifs);
+      }
+    } catch (notifErr) {
+      console.warn("Notice: Error saving staff notifications:", notifErr.message);
+    }
+
+    res.json({ success: true, alert, message: "SOS Emergency Alert dispatched to Security Officers & Committee!" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -257,8 +284,8 @@ exports.createSOS = async (req, res) => {
 exports.getActiveSOS = async (req, res) => {
   try {
     const alerts = await SOSAlert.find({ status: "active" })
-      .populate("student", "email")
-      .sort({ timestamp: -1 });
+      .populate("student", "email name role")
+      .sort({ createdAt: -1, timestamp: -1 });
     res.json({ success: true, alerts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -267,8 +294,17 @@ exports.getActiveSOS = async (req, res) => {
 
 exports.resolveSOS = async (req, res) => {
   try {
-    const alert = await SOSAlert.findByIdAndUpdate(req.params.id, { status: "resolved" }, { new: true });
-    res.json({ success: true, alert });
+    const alert = await SOSAlert.findByIdAndUpdate(
+      req.params.id, 
+      { status: "resolved" }, 
+      { new: true }
+    ).populate("student", "email name role");
+
+    if (global.io && alert) {
+      global.io.emit("sos:resolved", alert);
+    }
+
+    res.json({ success: true, alert, message: "SOS Alert marked as resolved" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

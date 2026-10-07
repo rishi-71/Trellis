@@ -409,7 +409,7 @@ export default function HomeScreen() {
                 <NoticesModule token={token} backendUrl={backendUrl} />
               )}
               {activeApp === 'sos' && (
-                <SOSModule token={token} backendUrl={backendUrl} />
+                <SOSModule token={token} backendUrl={backendUrl} userRole={userRole} />
               )}
             </ScrollView>
           )}
