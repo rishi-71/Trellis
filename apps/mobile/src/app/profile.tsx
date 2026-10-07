@@ -51,6 +51,7 @@ export default function ProfileScreen() {
   const [officeLocation, setOfficeLocation] = useState('Central Admin Office');
 
   // Edit Profile Inputs
+  const [editName, setEditName] = useState('');
   const [editBio, setEditBio] = useState('');
   const [editSkills, setEditSkills] = useState('');
   const [editCgpa, setEditCgpa] = useState('');
@@ -89,6 +90,7 @@ export default function ProfileScreen() {
         if (data.profile.year) globalState.setStudentYear(data.profile.year);
         if (data.profile.semester) globalState.setStudentSemester(data.profile.semester);
 
+        setEditName(data.profile.name || '');
         setEditBio(data.profile.bio || '');
         setEditSkills((data.profile.skills || []).join(', '));
         setEditCgpa(data.profile.cgpa !== undefined ? String(data.profile.cgpa) : '');
@@ -227,7 +229,7 @@ export default function ProfileScreen() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          name: profile?.name || name,
+          name: editName.trim() || profile?.name || name,
           rollNumber: profile?.rollNumber || rollNumber,
           branch: profile?.branch || branch,
           graduationYear: parseInt(editGradYear) || 2027,
@@ -718,6 +720,16 @@ export default function ProfileScreen() {
             <View style={styles.modalOverlay}>
               <View style={styles.modalSheet}>
                 <Text style={styles.modalTitle}>Edit Campus Profile</Text>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Full Name</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Your Name"
+                    value={editName}
+                    onChangeText={setEditName}
+                  />
+                </View>
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>CGPA</Text>
