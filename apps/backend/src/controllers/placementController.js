@@ -991,36 +991,51 @@ async function runMatchingEngine(jobPostingId, senderId = null, senderRole = "sy
   const job = await JobPosting.findById(jobPostingId);
   if (!job) return;
 
-  const registrations = await PlacementRegistration.find({ status: "locked" }).populate("studentId");
+  const students = await User.find({ role: "student" });
 
-  for (const reg of registrations) {
-    const studentId = reg.studentId._id;
+  for (const student of students) {
+    const studentId = student._id;
+    const studentProfile = await StudentProfile.findOne({ user: studentId });
+    const reg = await PlacementRegistration.findOne({ studentId });
+
+    if (!studentProfile && !reg) continue;
+
+    if (reg && reg.academic && (!reg.academic.cgpa || reg.academic.cgpa === 0) && studentProfile?.cgpa) {
+      reg.academic.cgpa = studentProfile.cgpa;
+      await reg.save();
+    }
+
     let isEligible = true;
     const failedConditions = [];
 
     for (const rule of job.eligibilityRules) {
       let actualValue = null;
-      
-      if (rule.field === "cgpa") {
-        actualValue = reg.academic.cgpa;
-      } else if (rule.field === "backlogCount") {
-        actualValue = reg.academic.backlogCount;
-      } else if (rule.field === "tenthPercentage" || rule.field === "tenth.percentage") {
-        actualValue = reg.academic.tenth.percentage;
-      } else if (rule.field === "twelfthPercentage" || rule.field === "twelfth.percentage") {
-        actualValue = reg.academic.twelfth.percentage;
-      } else if (rule.field === "branch") {
-        actualValue = reg.academic.branch;
-      } else if (rule.field === "twelfthToGraduationGap") {
-        actualValue = reg.academic.twelfthToGraduationGap;
-      } else if (rule.field === "tenthToTwelfthGap") {
-        actualValue = reg.academic.tenthToTwelfthGap;
-      } else if (rule.field === "overallEducationGap") {
-        actualValue = reg.academic.overallEducationGap;
+      const cleanField = rule.field.startsWith("academic.") ? rule.field.replace("academic.", "") : rule.field;
+
+      if (cleanField === "cgpa") {
+        actualValue = (reg?.academic?.cgpa !== undefined && reg.academic.cgpa > 0)
+          ? reg.academic.cgpa 
+          : (studentProfile?.cgpa !== undefined ? studentProfile.cgpa : 0);
+      } else if (cleanField === "backlogCount") {
+        actualValue = reg?.academic?.backlogCount !== undefined 
+          ? reg.academic.backlogCount 
+          : (studentProfile?.backlogs !== undefined ? studentProfile.backlogs : 0);
+      } else if (cleanField === "tenthPercentage" || cleanField === "tenth.percentage") {
+        actualValue = reg?.academic?.tenth?.percentage;
+      } else if (cleanField === "twelfthPercentage" || cleanField === "twelfth.percentage") {
+        actualValue = reg?.academic?.twelfth?.percentage;
+      } else if (cleanField === "branch") {
+        actualValue = reg?.academic?.branch || studentProfile?.branch;
+      } else if (cleanField === "twelfthToGraduationGap") {
+        actualValue = reg?.academic?.twelfthToGraduationGap;
+      } else if (cleanField === "tenthToTwelfthGap") {
+        actualValue = reg?.academic?.tenthToTwelfthGap;
+      } else if (cleanField === "overallEducationGap") {
+        actualValue = reg?.academic?.overallEducationGap;
       } else {
         // Resolve nested path safely
-        const parts = rule.field.split(".");
-        actualValue = parts.reduce((acc, part) => acc && acc[part], reg.academic);
+        const parts = cleanField.split(".");
+        actualValue = parts.reduce((acc, part) => acc && acc[part], reg?.academic);
       }
 
       let rulePassed = false;
@@ -1265,3 +1280,5 @@ exports.getPlacementActivityFeed = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+exports.runMatchingEngine = runMatchingEngine;

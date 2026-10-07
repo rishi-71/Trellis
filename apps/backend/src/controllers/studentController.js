@@ -30,10 +30,39 @@ exports.createProfile = async (req, res) => {
   try {
     const { name, rollNumber, branch, graduationYear, cgpa, backlogs, bio, photoUrl, skills, projects, internships, resumeUrl, socialLinks, education } = req.body;
     
-    // Check if profile already exists
+    // Check if profile already exists - update it seamlessly if so
     const existingProfile = await StudentProfile.findOne({ user: req.user.id });
     if (existingProfile) {
-      return res.status(400).json({ success: false, message: "Profile already exists for this user. Use PUT to update." });
+      delete req.body.user;
+      Object.assign(existingProfile, req.body);
+      await existingProfile.save();
+
+      // Sync placement registration & matching engine
+      try {
+        const PlacementRegistration = require("../models/PlacementRegistration");
+        const JobPosting = require("../models/JobPosting");
+        const { runMatchingEngine } = require("./placementController");
+
+        if (req.body.cgpa !== undefined) {
+          const reg = await PlacementRegistration.findOne({ studentId: req.user.id });
+          if (reg) {
+            if (!reg.academic) reg.academic = {};
+            reg.academic.cgpa = parseFloat(req.body.cgpa);
+            await reg.save();
+          }
+        }
+
+        if (runMatchingEngine) {
+          const activeJobs = await JobPosting.find();
+          for (const j of activeJobs) {
+            await runMatchingEngine(j._id);
+          }
+        }
+      } catch (syncErr) {
+        console.log("Placement matching sync note:", syncErr.message);
+      }
+
+      return res.json({ success: true, message: "Profile updated successfully", profile: existingProfile });
     }
     
     // Check if roll number is already used
@@ -93,6 +122,30 @@ exports.updateProfile = async (req, res) => {
     // Update fields
     Object.assign(profile, updates);
     await profile.save();
+
+    // Re-run matching engine & update PlacementRegistration if CGPA was updated
+    try {
+      const PlacementRegistration = require("../models/PlacementRegistration");
+      const JobPosting = require("../models/JobPosting");
+      const { runMatchingEngine } = require("./placementController");
+
+      if (updates.cgpa !== undefined) {
+        const reg = await PlacementRegistration.findOne({ studentId: req.user.id });
+        if (reg) {
+          reg.academic.cgpa = parseFloat(updates.cgpa);
+          await reg.save();
+        }
+      }
+
+      if (runMatchingEngine) {
+        const activeJobs = await JobPosting.find();
+        for (const j of activeJobs) {
+          await runMatchingEngine(j._id);
+        }
+      }
+    } catch (syncErr) {
+      console.log("Placement matching sync note:", syncErr.message);
+    }
     
     res.json({ success: true, message: "Profile updated successfully", profile });
   } catch (err) {

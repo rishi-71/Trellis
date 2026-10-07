@@ -54,6 +54,7 @@ export default function ProfileScreen() {
   const [editBio, setEditBio] = useState('');
   const [editSkills, setEditSkills] = useState('');
   const [editCgpa, setEditCgpa] = useState('');
+  const [editGradYear, setEditGradYear] = useState('2027');
 
   // Subscribe to globalState
   useEffect(() => {
@@ -90,7 +91,8 @@ export default function ProfileScreen() {
 
         setEditBio(data.profile.bio || '');
         setEditSkills((data.profile.skills || []).join(', '));
-        setEditCgpa(data.profile.cgpa ? String(data.profile.cgpa) : '');
+        setEditCgpa(data.profile.cgpa !== undefined ? String(data.profile.cgpa) : '');
+        setEditGradYear(data.profile.graduationYear ? String(data.profile.graduationYear) : '2027');
       } else {
         setHasProfile(false);
       }
@@ -212,14 +214,14 @@ export default function ProfileScreen() {
     }
   };
 
-  // Update Profile (Bio, Skills, CGPA)
+  // Update Profile (Bio, Skills, CGPA, Graduation Year)
   const handleUpdateProfile = async () => {
     if (!token) return;
     setLoading(true);
     try {
       const skillArray = editSkills.split(',').map(s => s.trim()).filter(Boolean);
       const res = await fetch(`${backendUrl}/api/students/profile`, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
@@ -228,10 +230,10 @@ export default function ProfileScreen() {
           name: profile?.name || name,
           rollNumber: profile?.rollNumber || rollNumber,
           branch: profile?.branch || branch,
-          graduationYear: profile?.graduationYear || 2026,
+          graduationYear: parseInt(editGradYear) || 2027,
           bio: editBio,
           skills: skillArray,
-          cgpa: parseFloat(editCgpa) || profile?.cgpa || 0,
+          cgpa: parseFloat(editCgpa) || 0,
         }),
       });
       const data = await res.json();
@@ -385,7 +387,7 @@ export default function ProfileScreen() {
                     </View>
                     <View style={styles.infoRow}>
                       <Text style={styles.infoKey}>Class of</Text>
-                      <Text style={styles.infoVal}>{profile.graduationYear || '2026'}</Text>
+                      <Text style={styles.infoVal}>{profile.graduationYear || '2027'}</Text>
                     </View>
                   </View>
 
@@ -721,10 +723,21 @@ export default function ProfileScreen() {
                   <Text style={styles.inputLabel}>CGPA</Text>
                   <TextInput
                     style={styles.textInput}
-                    placeholder="8.50"
+                    placeholder="8.00"
                     value={editCgpa}
                     onChangeText={setEditCgpa}
                     keyboardType="decimal-pad"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Class of (Graduation Year)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="2027"
+                    value={editGradYear}
+                    onChangeText={setEditGradYear}
+                    keyboardType="numeric"
                   />
                 </View>
 
