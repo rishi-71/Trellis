@@ -293,12 +293,22 @@ export default function ProfileScreen() {
               <Text style={styles.brandTitle}>🌱 Trellis</Text>
               <Text style={styles.screenSubtitle}>Campus Identity & Credentials</Text>
             </View>
-            <TouchableOpacity
-              style={styles.serverSettingsBtn}
-              onPress={() => setShowServerConfig(!showServerConfig)}
-            >
-              <Text style={styles.serverSettingsBtnText}>⚙️ Server</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              <TouchableOpacity
+                style={styles.serverSettingsBtn}
+                onPress={() => setShowServerConfig(!showServerConfig)}
+              >
+                <Text style={styles.serverSettingsBtnText}>⚙️ Server</Text>
+              </TouchableOpacity>
+              {token && (
+                <TouchableOpacity
+                  style={[styles.serverSettingsBtn, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}
+                  onPress={handleLogout}
+                >
+                  <Text style={[styles.serverSettingsBtnText, { color: '#991B1B' }]}>🚪 Logout</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           {/* Collapsible Server IP Config */}
@@ -456,6 +466,35 @@ export default function ProfileScreen() {
 
                 <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
                   <Text style={styles.logoutBtnText}>Log Out</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Fallback View when Logged in without a profile document */}
+          {token && !profile && !loading && (
+            <View style={styles.cardContainer}>
+              <View style={styles.avatarCard}>
+                <View style={styles.avatarCircle}>
+                  <Text style={styles.avatarInitial}>
+                    {userRole ? userRole[0].toUpperCase() : 'U'}
+                  </Text>
+                </View>
+                <Text style={styles.userName}>Campus Member</Text>
+                <Text style={styles.userEmail}>{email || 'Active Session'}</Text>
+                <View style={styles.roleBadge}>
+                  <Text style={styles.roleBadgeText}>
+                    {userRole ? userRole.toUpperCase() : 'FACULTY'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={[styles.infoSection, { alignItems: 'center', paddingVertical: 20 }]}>
+                <Text style={{ fontSize: 13, color: '#4B5563', textAlign: 'center', marginBottom: 16 }}>
+                  You are signed in with an active institutional account.
+                </Text>
+                <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+                  <Text style={styles.logoutBtnText}>🚪 Log Out</Text>
                 </TouchableOpacity>
               </View>
             </View>

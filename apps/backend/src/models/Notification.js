@@ -22,7 +22,7 @@ const NotificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ["placement_drive", "eligibility_alert", "application_status", "custom_alert", "shortlist_announcement", "general", "lost_found"],
+    enum: ["placement_drive", "eligibility_alert", "application_status", "custom_alert", "shortlist_announcement", "general", "lost_found", "sensor_loan"],
     default: "general"
   },
   title: {
