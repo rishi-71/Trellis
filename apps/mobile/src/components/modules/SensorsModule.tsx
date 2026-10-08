@@ -354,11 +354,22 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
           style={styles.refreshIconBtn} 
           onPress={() => fetchSensorsData(true)}
         >
-          <Text style={{ fontSize: 13 }}>🔄</Text>
+          <Text style={{ fontSize: 14 }}>🔄</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Role-Aware Navigation Tabs (Clean 2-Tab Layout per role to prevent any overflow) */}
+      {/* Lab Policy Banner */}
+      <View style={styles.policyBanner}>
+        <Text style={styles.policyBannerIcon}>💡</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.policyBannerTitle}>Lab Hardware Lending Rules</Text>
+          <Text style={styles.policyBannerTxt}>
+            Standard 7-day loan period • Collect & return equipment at Room 302
+          </Text>
+        </View>
+      </View>
+
+      {/* Role-Aware Navigation Tabs */}
       <View style={styles.tabContainer}>
         <TouchableOpacity 
           style={[styles.tabBtn, activeTab === 'catalog' && styles.tabBtnActive]} 
@@ -397,7 +408,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
       {/* ==================== TAB 1: CATALOG ==================== */}
       {activeTab === 'catalog' && (
         <View style={{ marginTop: 4 }}>
-          {/* Compact Search Box */}
+          {/* Search Box */}
           <View style={styles.searchContainer}>
             <TextInput 
               style={styles.searchInput}
@@ -408,7 +419,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
             />
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
-                <Text style={{ fontSize: 12, color: '#6B7280' }}>✕</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280' }}>✕</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -416,7 +427,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
           {/* Quick Filter Pills */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
             {[
-              { id: 'all', label: 'All' },
+              { id: 'all', label: 'All Equipment' },
               { id: 'in_stock', label: 'In Stock' },
               { id: 'microcontroller', label: 'MCUs' },
               { id: 'sensor', label: 'Sensors' },
@@ -440,7 +451,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
             ))}
           </ScrollView>
 
-          {/* Minimalist Catalog Cards */}
+          {/* Catalog Cards */}
           {filteredSensors.length === 0 ? (
             <Text style={styles.emptyText}>No sensors found matching your search.</Text>
           ) : (
@@ -448,12 +459,19 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
               const inStock = sensor.availableQuantity > 0;
               return (
                 <View key={sensor._id} style={styles.sensorCard}>
-                  <View style={{ flex: 1, paddingRight: 8 }}>
-                    <Text style={styles.sensorName} numberOfLines={1}>
-                      {sensor.name}
-                    </Text>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <View style={styles.sensorNameRow}>
+                      <Text style={styles.sensorName} numberOfLines={1}>
+                        {sensor.name}
+                      </Text>
+                      <View style={[styles.stockBadge, inStock ? styles.stockIn : styles.stockOut]}>
+                        <Text style={[styles.stockBadgeTxt, inStock ? styles.stockInTxt : styles.stockOutTxt]}>
+                          {inStock ? `${sensor.availableQuantity} available` : 'Out of stock'}
+                        </Text>
+                      </View>
+                    </View>
                     <Text style={styles.sensorSub} numberOfLines={1}>
-                      {sensor.department || 'IoT Lab'} • {sensor.availableQuantity} of {sensor.totalQuantity} available
+                      {sensor.type ? `${sensor.type.toUpperCase()} • ` : ''}{sensor.department || 'ECE / IoT Lab'}
                     </Text>
                   </View>
 
@@ -462,7 +480,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
                     disabled={!inStock}
                     onPress={() => handleOpenApply(sensor)}
                   >
-                    <Text style={styles.applyBtnTxt}>
+                    <Text style={[styles.applyBtnTxt, !inStock && styles.disabledBtnTxt]}>
                       {inStock ? 'Rent' : 'Out'}
                     </Text>
                   </TouchableOpacity>
@@ -478,9 +496,10 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
         <View style={{ marginTop: 4 }}>
           {myRequests.length === 0 ? (
             <View style={styles.emptyContainer}>
+              <Text style={{ fontSize: 36, marginBottom: 8 }}>📦</Text>
               <Text style={styles.emptyTitle}>No Active Rental Loans</Text>
               <Text style={styles.emptyText}>
-                You haven't requested any sensors yet. Browse the catalog to apply for lab hardware.
+                You haven't requested any sensors or hardware yet. Browse the catalog to apply for microcontrollers, sensors, and lab kits.
               </Text>
             </View>
           ) : (
@@ -490,7 +509,7 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
 
               return (
                 <View key={req._id} style={styles.compactRequestCard}>
-                  {/* Row 1: Sensor Name + Status Chip (No Overflow) */}
+                  {/* Row 1: Sensor Name + Status Chip */}
                   <View style={styles.cardHeaderRow}>
                     <Text style={styles.cardHeaderTitle} numberOfLines={1} ellipsizeMode="tail">
                       {sensorTitle}
@@ -711,48 +730,79 @@ export default function SensorsModule({ token, backendUrl }: SensorsProps) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 18,
-    padding: Spacing.three,
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#E6F4EA',
-    marginBottom: 40,
+    marginBottom: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   cardTitle: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '900',
     color: '#064E3B',
   },
   cardSubtitle: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#6B7280',
-    marginTop: 1,
+    marginTop: 2,
+    fontWeight: '500',
   },
   refreshIconBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  policyBanner: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 14,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  policyBannerIcon: {
+    fontSize: 20,
+  },
+  policyBannerTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#064E3B',
+  },
+  policyBannerTxt: {
+    fontSize: 11,
+    color: '#047857',
+    marginTop: 1,
+    lineHeight: 15,
+  },
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
-    borderRadius: 10,
-    padding: 3,
-    marginBottom: 8,
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 12,
   },
   tabBtn: {
     flex: 1,
-    paddingVertical: 7,
+    paddingVertical: 9,
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: 9,
   },
   tabBtnActive: {
     backgroundColor: '#FFF',
@@ -762,12 +812,13 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   tabBtnTxt: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     color: '#6B7280',
   },
   tabBtnTxtActive: {
     color: '#065F46',
+    fontWeight: '800',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -775,31 +826,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    marginBottom: 6,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 42,
+    marginBottom: 10,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 6,
-    fontSize: 11,
+    fontSize: 13,
     color: '#111827',
   },
   filterScroll: {
-    marginBottom: 8,
+    marginBottom: 12,
   },
   filterPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
     backgroundColor: '#F3F4F6',
-    marginRight: 5,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   filterPillActive: {
     backgroundColor: '#064E3B',
+    borderColor: '#064E3B',
   },
   filterPillText: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: '700',
     color: '#4B5563',
   },
@@ -810,29 +864,56 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     backgroundColor: '#F9FAFB',
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    marginBottom: 6,
+    marginBottom: 10,
+  },
+  sensorNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 3,
   },
   sensorName: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '800',
     color: '#111827',
+    flexShrink: 1,
+  },
+  stockBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  stockIn: {
+    backgroundColor: '#ECFDF5',
+  },
+  stockOut: {
+    backgroundColor: '#FEE2E2',
+  },
+  stockBadgeTxt: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  stockInTxt: {
+    color: '#065F46',
+  },
+  stockOutTxt: {
+    color: '#991B1B',
   },
   sensorSub: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#6B7280',
-    marginTop: 1,
   },
   applyBtn: {
     backgroundColor: '#10B981',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -841,113 +922,118 @@ const styles = StyleSheet.create({
   },
   applyBtnTxt: {
     color: '#FFF',
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  disabledBtnTxt: {
+    color: '#9CA3AF',
   },
   compactRequestCard: {
-    padding: 10,
+    padding: 14,
     backgroundColor: '#F9FAFB',
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    marginBottom: 6,
+    marginBottom: 10,
   },
   cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
+    gap: 8,
+    marginBottom: 6,
   },
   cardHeaderTitle: {
     flex: 1,
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '800',
     color: '#111827',
   },
   badge: {
     flexShrink: 0,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 8,
   },
   badgeTxt: {
-    fontSize: 9,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 1,
+    marginTop: 3,
   },
   metaText: {
-    fontSize: 10,
-    color: '#6B7280',
+    fontSize: 12,
+    color: '#4B5563',
   },
   pickupHint: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#065F46',
-    fontWeight: '600',
-    marginTop: 3,
+    fontWeight: '700',
+    marginTop: 5,
   },
   pendingHint: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#92400E',
-    marginTop: 3,
+    fontWeight: '600',
+    marginTop: 5,
   },
   rejectHint: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#991B1B',
-    marginTop: 3,
+    fontWeight: '600',
+    marginTop: 5,
   },
   studentDetailText: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#374151',
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 4,
   },
   purposeText: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#6B7280',
-    marginTop: 1,
+    marginTop: 2,
   },
   facultyActionRow: {
     flexDirection: 'row',
-    gap: 6,
-    marginTop: 6,
-    paddingTop: 6,
+    gap: 8,
+    marginTop: 8,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
   },
   facultyBtn: {
     flex: 1,
-    paddingVertical: 5,
-    borderRadius: 6,
+    paddingVertical: 7,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   facultyBtnTxt: {
     color: '#FFF',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
   },
   labFilterRow: {
     flexDirection: 'row',
-    gap: 5,
-    marginBottom: 8,
+    gap: 6,
+    marginBottom: 10,
   },
   labFilterBtn: {
     flex: 1,
-    paddingVertical: 5,
+    paddingVertical: 7,
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: 8,
     backgroundColor: '#F3F4F6',
   },
   labFilterBtnActive: {
     backgroundColor: '#064E3B',
   },
   labFilterBtnText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     color: '#6B7280',
   },
@@ -956,19 +1042,21 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     alignItems: 'center',
-    paddingVertical: 18,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
   },
   emptyTitle: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     color: '#111827',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   emptyText: {
     color: '#6B7280',
-    fontSize: 11,
+    fontSize: 13,
     textAlign: 'center',
-    marginVertical: 10,
+    marginVertical: 6,
+    lineHeight: 18,
   },
   modalOverlay: {
     flex: 1,
@@ -978,67 +1066,67 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     shadowColor: '#000',
     shadowOpacity: 0.2,
-    shadowRadius: 6,
+    shadowRadius: 8,
     elevation: 4,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   modalTitle: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
     color: '#111827',
   },
   selectedSensorHighlight: {
     backgroundColor: '#F0FDF4',
     borderWidth: 1,
     borderColor: '#BBF7D0',
-    padding: 6,
-    borderRadius: 6,
-    marginBottom: 6,
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 8,
   },
   selectedSensorName: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
     color: '#065F46',
   },
   selectedSensorStock: {
-    fontSize: 9,
+    fontSize: 11,
     color: '#047857',
-    marginTop: 1,
+    marginTop: 2,
   },
   label: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
     color: '#374151',
-    marginTop: 5,
-    marginBottom: 2,
+    marginTop: 8,
+    marginBottom: 3,
   },
   input: {
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    fontSize: 11,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
   },
   durationRow: {
     flexDirection: 'row',
-    gap: 5,
-    marginBottom: 2,
+    gap: 8,
+    marginBottom: 4,
   },
   durationChip: {
     flex: 1,
-    paddingVertical: 5,
-    borderRadius: 6,
+    paddingVertical: 7,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#D1D5DB',
     alignItems: 'center',
@@ -1049,7 +1137,7 @@ const styles = StyleSheet.create({
     borderColor: '#064E3B',
   },
   durationChipText: {
-    fontSize: 9,
+    fontSize: 12,
     color: '#4B5563',
     fontWeight: '600',
   },
@@ -1059,13 +1147,13 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
+    gap: 10,
+    marginTop: 14,
   },
   modalBtn: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: 'center',
   },
 });

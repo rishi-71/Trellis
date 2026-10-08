@@ -1,8 +1,27 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+
+function getAutoDetectedIp(): string {
+  try {
+    const hostUri =
+      Constants.expoConfig?.hostUri ||
+      (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ||
+      (Constants as any).manifest?.debuggerHost;
+    if (hostUri) {
+      const ip = hostUri.split(':')[0];
+      if (ip && ip !== 'localhost') {
+        return ip;
+      }
+    }
+  } catch (err) {
+    console.log('Auto IP detection note:', err);
+  }
+  return '127.0.0.1';
+}
 
 class GlobalState {
   private _token: string | null = null;
-  private _ipAddress: string = '127.0.0.1';
+  private _ipAddress: string = getAutoDetectedIp();
   private _userRole: string | null = null;
   private _studentBranch: string = '';
   private _studentYear: number = 1;
@@ -26,7 +45,15 @@ class GlobalState {
       ]);
 
       if (token) this._token = token;
-      if (ip) this._ipAddress = ip;
+      
+      // Prioritize auto-detected Metro host IP if saved IP is default 127.0.0.1
+      const detected = getAutoDetectedIp();
+      if (ip && ip !== '127.0.0.1') {
+        this._ipAddress = ip;
+      } else if (detected !== '127.0.0.1') {
+        this._ipAddress = detected;
+      }
+
       if (role) this._userRole = role;
       if (branch) this._studentBranch = branch;
       if (year) this._studentYear = parseInt(year) || 1;

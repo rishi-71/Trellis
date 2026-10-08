@@ -408,27 +408,6 @@ export default function LostFoundModule({ token, backendUrl, userRole }: LostFou
 
   return (
     <View style={styles.container}>
-      {/* Top Banner Header */}
-      <View style={styles.bannerCard}>
-        <View style={styles.bannerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.bannerTitle}>
-              {isManagement ? '🏢 Lost & Found Custody Desk' : '📦 Lost & Found Claims Bulletin'}
-            </Text>
-            <Text style={styles.bannerSubtitle}>
-              {isManagement
-                ? 'Campus property custody, verification & official handovers'
-                : 'Report missing valuables or browse items found on campus'}
-            </Text>
-          </View>
-          {isManagement && (
-            <View style={styles.mgmtPill}>
-              <Text style={styles.mgmtPillTxt}>MANAGEMENT</Text>
-            </View>
-          )}
-        </View>
-      </View>
-
       {/* Urgent Found Alert Banner for Student */}
       {!isManagement && summary?.hasUrgentFoundAlert && (
         <View style={styles.urgentAlertCard}>
@@ -466,40 +445,28 @@ export default function LostFoundModule({ token, backendUrl, userRole }: LostFou
       {/* ================= TAB 1: BROWSE CLAIMS ================= */}
       {activeTab === 'browse' ? (
         <View style={{ flex: 1 }}>
-          {/* Quick Metrics Bar */}
-          <View style={styles.metricsRow}>
-            <TouchableOpacity
-              style={[styles.metricBox, filterTag === 'all' && styles.metricBoxActive]}
-              onPress={() => setFilterTag('all')}
-            >
-              <Text style={styles.metricVal}>{items.length}</Text>
-              <Text style={styles.metricLbl}>All Items</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.metricBox, filterTag === 'lost' && styles.metricBoxActive]}
-              onPress={() => setFilterTag('lost')}
-            >
-              <Text style={[styles.metricVal, { color: '#DC2626' }]}>{lostCount}</Text>
-              <Text style={styles.metricLbl}>Lost 🔍</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.metricBox, filterTag === 'ready' && styles.metricBoxActive]}
-              onPress={() => setFilterTag('ready')}
-            >
-              <Text style={[styles.metricVal, { color: '#059669' }]}>{readyCount}</Text>
-              <Text style={styles.metricLbl}>In Custody 🟢</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.metricBox, filterTag === 'claimed' && styles.metricBoxActive]}
-              onPress={() => setFilterTag('claimed')}
-            >
-              <Text style={[styles.metricVal, { color: '#6B7280' }]}>{claimedCount}</Text>
-              <Text style={styles.metricLbl}>Resolved ✅</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Status Filter Pills */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScrollWrap} contentContainerStyle={styles.filterScrollContent}>
+            {[
+              { id: 'all', label: 'All Items', count: items.length },
+              { id: 'lost', label: '🔍 Lost', count: lostCount },
+              { id: 'ready', label: '🟢 In Custody', count: readyCount },
+              { id: 'claimed', label: '✅ Resolved', count: claimedCount }
+            ].map((f) => {
+              const isActive = filterTag === f.id;
+              return (
+                <TouchableOpacity
+                  key={f.id}
+                  style={[styles.filterPillBtn, isActive && styles.filterPillBtnActive]}
+                  onPress={() => setFilterTag(f.id as FilterTag)}
+                >
+                  <Text style={[styles.filterPillTxt, isActive && styles.filterPillTxtActive]}>
+                    {f.label} ({f.count})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
 
           {/* Search Bar */}
           <View style={styles.searchBar}>
@@ -631,7 +598,7 @@ export default function LostFoundModule({ token, backendUrl, userRole }: LostFou
                         style={styles.deleteBtn}
                         onPress={() => handleDeletePost(item._id, item.title)}
                       >
-                        <Text style={styles.deleteBtnTxt}>🗑️ Delete Post</Text>
+                        <Text style={styles.deleteBtnTxt}>🗑️ Delete</Text>
                       </TouchableOpacity>
 
                       <View style={styles.actionGroup}>
@@ -641,7 +608,7 @@ export default function LostFoundModule({ token, backendUrl, userRole }: LostFou
                             style={styles.resolveBtn}
                             onPress={() => handleSimpleResolve(item._id)}
                           >
-                            <Text style={styles.resolveBtnTxt}>Recovered / Found ✅</Text>
+                            <Text style={styles.resolveBtnTxt}>Recovered ✅</Text>
                           </TouchableOpacity>
                         )}
 
@@ -708,7 +675,7 @@ export default function LostFoundModule({ token, backendUrl, userRole }: LostFou
                 <Text
                   style={[styles.typeSelectTxt, reportType === 'lost' && styles.typeSelectTxtLostActive]}
                 >
-                  🔍 I LOST AN ITEM
+                  🔍 Lost Valuable
                 </Text>
               </TouchableOpacity>
 
@@ -726,7 +693,7 @@ export default function LostFoundModule({ token, backendUrl, userRole }: LostFou
                 <Text
                   style={[styles.typeSelectTxt, reportType === 'found' && styles.typeSelectTxtFoundActive]}
                 >
-                  📦 I FOUND AN ITEM
+                  📦 Found Item
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1051,15 +1018,16 @@ const styles = StyleSheet.create({
   },
   tabsWrap: {
     flexDirection: 'row',
-    backgroundColor: '#E6F4EA',
-    borderRadius: 14,
-    padding: 4
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 8
   },
   tabBtn: {
     flex: 1,
-    paddingVertical: 9,
+    paddingVertical: 7,
     alignItems: 'center',
-    borderRadius: 10
+    borderRadius: 9
   },
   tabBtnActive: {
     backgroundColor: '#FFF',
@@ -1075,61 +1043,68 @@ const styles = StyleSheet.create({
     color: '#4B5563'
   },
   tabTxtActive: {
-    color: '#065F46',
-    fontWeight: '900'
+    color: '#064E3B',
+    fontWeight: '800'
   },
-  metricsRow: {
+  filterScrollWrap: {
+    flexGrow: 0,
+    flexShrink: 0,
+    marginBottom: 8,
+  },
+  filterScrollContent: {
     flexDirection: 'row',
-    gap: 6,
-    marginBottom: 8
-  },
-  metricBox: {
-    flex: 1,
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    paddingVertical: 10,
+    gap: 8,
+    paddingVertical: 4,
     alignItems: 'center',
+  },
+  filterPillBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
     borderWidth: 1,
-    borderColor: '#E6F4EA'
+    borderColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  metricBoxActive: {
-    borderColor: '#059669',
-    backgroundColor: '#E6F4EA'
+  filterPillBtnActive: {
+    backgroundColor: '#064E3B',
+    borderColor: '#064E3B',
   },
-  metricVal: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#064E3B'
-  },
-  metricLbl: {
-    fontSize: 10,
+  filterPillTxt: {
+    fontSize: 12,
     fontWeight: '700',
-    color: '#6B7280',
-    marginTop: 2
+    color: '#4B5563',
+    lineHeight: 16,
+    includeFontPadding: false,
+  },
+  filterPillTxtActive: {
+    color: '#FFF',
+    fontWeight: '800',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 38,
     borderWidth: 1,
     borderColor: '#E6F4EA',
-    marginBottom: 8
+    marginBottom: 6
   },
   searchIcon: {
-    fontSize: 13,
+    fontSize: 12,
     marginRight: 6
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 8,
     fontSize: 12,
     color: '#111827'
   },
   scrollList: {
-    paddingBottom: 28,
-    gap: 10
+    paddingBottom: 24,
+    gap: 8
   },
   loadingBox: {
     flexDirection: 'row',
@@ -1146,40 +1121,40 @@ const styles = StyleSheet.create({
   emptyCard: {
     backgroundColor: '#FFF',
     borderRadius: 16,
-    padding: 28,
+    padding: 24,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E6F4EA',
     marginVertical: 12
   },
   emptyEmoji: {
-    fontSize: 32,
-    marginBottom: 8
+    fontSize: 28,
+    marginBottom: 6
   },
   emptyTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: '#111827'
   },
   emptySub: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#6B7280',
     textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 16
+    marginTop: 3,
+    lineHeight: 15
   },
   itemCard: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 14,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#E6F4EA',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
     elevation: 1,
-    gap: 8
+    gap: 6
   },
   cardHeader: {
     flexDirection: 'row',
@@ -1222,19 +1197,19 @@ const styles = StyleSheet.create({
   },
   cardBody: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     alignItems: 'flex-start'
   },
   itemThumbnail: {
-    width: 68,
-    height: 68,
-    borderRadius: 10,
+    width: 54,
+    height: 54,
+    borderRadius: 8,
     backgroundColor: '#E5E7EB'
   },
   itemThumbnailPlaceholder: {
-    width: 68,
-    height: 68,
-    borderRadius: 10,
+    width: 54,
+    height: 54,
+    borderRadius: 8,
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center'
@@ -1253,8 +1228,8 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 6
+    gap: 8,
+    marginTop: 4
   },
   metaTxt: {
     fontSize: 10,
@@ -1267,7 +1242,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
-    marginTop: 6
+    marginTop: 4
   },
   proofVerifiedTxt: {
     fontSize: 9,
@@ -1275,11 +1250,13 @@ const styles = StyleSheet.create({
     color: '#059669'
   },
   pickupBox: {
-    backgroundColor: '#F0FDF4',
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-    borderRadius: 8,
-    padding: 8
+    backgroundColor: '#ECFDF5',
+    borderLeftWidth: 3,
+    borderLeftColor: '#10B981',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginTop: 4
   },
   pickupBoxTitle: {
     fontSize: 11,
@@ -1299,10 +1276,12 @@ const styles = StyleSheet.create({
   },
   claimedBox: {
     backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    padding: 8
+    borderLeftWidth: 3,
+    borderLeftColor: '#9CA3AF',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginTop: 4
   },
   claimedTxt: {
     fontSize: 11,
@@ -1312,17 +1291,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 8,
+    paddingTop: 6,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
     flexWrap: 'wrap',
-    gap: 8
+    gap: 6
   },
   deleteBtn: {
     backgroundColor: '#FEE2E2',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6
   },
   deleteBtnTxt: {
     fontSize: 11,
@@ -1335,9 +1314,9 @@ const styles = StyleSheet.create({
   },
   resolveBtn: {
     backgroundColor: '#10B981',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6
   },
   resolveBtnTxt: {
     fontSize: 11,
@@ -1346,9 +1325,9 @@ const styles = StyleSheet.create({
   },
   receiveBtn: {
     backgroundColor: '#0284C7',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6
   },
   receiveBtnTxt: {
     fontSize: 11,
@@ -1357,9 +1336,9 @@ const styles = StyleSheet.create({
   },
   handoverBtn: {
     backgroundColor: '#059669',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6
   },
   handoverBtnTxt: {
     fontSize: 11,
@@ -1371,14 +1350,14 @@ const styles = StyleSheet.create({
   },
   formCard: {
     backgroundColor: '#FFF',
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#E6F4EA',
-    gap: 8
+    gap: 6
   },
   formTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
     color: '#064E3B'
   },
