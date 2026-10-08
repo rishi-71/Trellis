@@ -456,6 +456,25 @@ exports.reportLostFound = async (req, res) => {
       return res.status(400).json({ success: false, message: "Ownership proof (receipt/bill) is required for reporting lost items." });
     }
 
+    let finalImageUrl = imageUrl || "";
+    let finalProofUrl = proofUrl || "";
+
+    if (imageUrl && (imageUrl.startsWith("data:image/") || imageUrl.startsWith("data:application/"))) {
+      try {
+        finalImageUrl = await uploadBase64ImageToCloudinary(imageUrl, "lost_found", `lf_${req.user.id}`);
+      } catch (e) {
+        console.warn("Notice: Lost/Found image upload fallback:", e.message);
+      }
+    }
+
+    if (proofUrl && (proofUrl.startsWith("data:image/") || proofUrl.startsWith("data:application/"))) {
+      try {
+        finalProofUrl = await uploadBase64ImageToCloudinary(proofUrl, "lost_found_proofs", `lf_proof_${req.user.id}`);
+      } catch (e) {
+        console.warn("Notice: Lost/Found proof upload fallback:", e.message);
+      }
+    }
+
     const initialStatus = type === "found" ? "awaiting_handover" : "open";
 
     const item = new LostFound({
@@ -465,8 +484,8 @@ exports.reportLostFound = async (req, res) => {
       description,
       location,
       contact: contact || contactDetails || "",
-      proofUrl,
-      imageUrl,
+      proofUrl: finalProofUrl,
+      imageUrl: finalImageUrl,
       status: initialStatus
     });
     await item.save();
@@ -1151,13 +1170,22 @@ exports.createAchievement = async (req, res) => {
     const profile = await StudentProfile.findOne({ user: req.user.id });
     if (!profile) return res.status(400).json({ success: false, message: "Please create a profile first" });
 
+    let finalProofUrl = proofUrl || "";
+    if (proofUrl && (proofUrl.startsWith("data:image/") || proofUrl.startsWith("data:application/"))) {
+      try {
+        finalProofUrl = await uploadBase64ImageToCloudinary(proofUrl, "achievements", `ach_${profile._id}`);
+      } catch (e) {
+        console.warn("Notice: Achievement proof upload fallback:", e.message);
+      }
+    }
+
     const achievement = new Achievement({
       studentId: profile._id,
       title,
       category,
       level,
       description,
-      proofUrl,
+      proofUrl: finalProofUrl,
       status: "pending"
     });
 

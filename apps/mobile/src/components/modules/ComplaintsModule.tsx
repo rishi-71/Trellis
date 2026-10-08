@@ -271,20 +271,6 @@ export default function ComplaintsModule({ token, backendUrl, userRole }: Compla
 
   return (
     <View style={styles.container}>
-      {/* Top Header Banner */}
-      <View style={styles.bannerCard}>
-        <View>
-          <Text style={styles.bannerTitle}>
-            {isManagement ? '🏢 Facilities Control Desk' : '🔧 Campus Service Support'}
-          </Text>
-          <Text style={styles.bannerSubtitle}>
-            {isManagement
-              ? 'Campus-wide maintenance & infrastructure resolution desk'
-              : 'Log and track classroom, electrical, or hostel facility tickets'}
-          </Text>
-        </View>
-      </View>
-
       {/* --- STUDENT TOP TABS: Active Complaints vs File New Complaint --- */}
       {!isManagement && (
         <View style={styles.studentTabsWrap}>
@@ -378,40 +364,28 @@ export default function ComplaintsModule({ token, backendUrl, userRole }: Compla
       ) : (
         /* ================= VIEW 2: ACTIVE COMPLAINTS LIST (Student & Management) ================= */
         <View style={{ flex: 1 }}>
-          {/* Status Filter Chips */}
-          <View style={styles.statsRow}>
-            <TouchableOpacity
-              style={[styles.statTab, statusFilter === 'all' && styles.statTabActive]}
-              onPress={() => setStatusFilter('all')}
-            >
-              <Text style={styles.statVal}>{complaints.length}</Text>
-              <Text style={styles.statLbl}>All</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.statTab, statusFilter === 'pending' && styles.statTabActive]}
-              onPress={() => setStatusFilter('pending')}
-            >
-              <Text style={[styles.statVal, { color: '#D97706' }]}>{pendingCount}</Text>
-              <Text style={styles.statLbl}>Pending ⏳</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.statTab, statusFilter === 'in_progress' && styles.statTabActive]}
-              onPress={() => setStatusFilter('in_progress')}
-            >
-              <Text style={[styles.statVal, { color: '#4338CA' }]}>{inProgressCount}</Text>
-              <Text style={styles.statLbl}>Ongoing 🔧</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.statTab, statusFilter === 'resolved' && styles.statTabActive]}
-              onPress={() => setStatusFilter('resolved')}
-            >
-              <Text style={[styles.statVal, { color: '#15803D' }]}>{resolvedCount}</Text>
-              <Text style={styles.statLbl}>Resolved ✅</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Status Filter Pills */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScrollWrap} contentContainerStyle={styles.filterScrollContent}>
+            {[
+              { id: 'all', label: 'All Tickets', count: complaints.length },
+              { id: 'pending', label: '⏳ Pending', count: pendingCount },
+              { id: 'in_progress', label: '🔧 Ongoing', count: inProgressCount },
+              { id: 'resolved', label: '✅ Resolved', count: resolvedCount }
+            ].map((f) => {
+              const isActive = statusFilter === f.id;
+              return (
+                <TouchableOpacity
+                  key={f.id}
+                  style={[styles.filterPillBtn, isActive && styles.filterPillBtnActive]}
+                  onPress={() => setStatusFilter(f.id as StatusFilter)}
+                >
+                  <Text style={[styles.filterPillTxt, isActive && styles.filterPillTxtActive]}>
+                    {f.label} ({f.count})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
 
           {/* Search Bar */}
           <View style={styles.searchBar}>
@@ -706,16 +680,16 @@ const styles = StyleSheet.create({
   },
   studentTabsWrap: {
     flexDirection: 'row',
-    backgroundColor: '#E6F4EA',
-    borderRadius: 14,
-    padding: 4,
-    marginBottom: 2,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 8,
   },
   studentTabBtn: {
     flex: 1,
-    paddingVertical: 9,
+    paddingVertical: 7,
     alignItems: 'center',
-    borderRadius: 10,
+    borderRadius: 9,
   },
   studentTabBtnActive: {
     backgroundColor: '#FFF',
@@ -731,36 +705,36 @@ const styles = StyleSheet.create({
     color: '#4B5563',
   },
   studentTabTxtActive: {
-    color: '#065F46',
-    fontWeight: '900',
+    color: '#064E3B',
+    fontWeight: '800',
   },
   formScrollContainer: {
     paddingBottom: 30,
   },
   formCard: {
     backgroundColor: '#FFF',
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#E6F4EA',
-    gap: 8,
+    gap: 6,
   },
   formCardTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
     color: '#064E3B',
   },
   formCardSub: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#6B7280',
-    marginBottom: 8,
-    lineHeight: 16,
+    marginBottom: 6,
+    lineHeight: 15,
   },
   fieldLabel: {
     fontSize: 11,
     fontWeight: '800',
     color: '#374151',
-    marginTop: 6,
+    marginTop: 4,
     marginBottom: 2,
   },
   catGrid: {
@@ -770,16 +744,16 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   catChip: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
     paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   catChipActive: {
-    backgroundColor: '#059669',
-    borderColor: '#059669',
+    backgroundColor: '#064E3B',
+    borderColor: '#064E3B',
   },
   catChipTxt: {
     fontSize: 11,
@@ -788,81 +762,90 @@ const styles = StyleSheet.create({
   },
   catChipTxtActive: {
     color: '#FFF',
-    fontWeight: '900',
+    fontWeight: '800',
   },
   textInput: {
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 13,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    fontSize: 12,
     color: '#111827',
   },
   submitTicketBtn: {
     backgroundColor: '#10B981',
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 10,
+    paddingVertical: 11,
     alignItems: 'center',
-    marginTop: 14,
+    marginTop: 10,
   },
   submitTicketBtnTxt: {
     color: '#FFF',
-    fontSize: 14,
-    fontWeight: '900',
+    fontSize: 13,
+    fontWeight: '800',
   },
-  statsRow: {
+  filterScrollWrap: {
+    flexGrow: 0,
+    flexShrink: 0,
+    marginBottom: 8,
+  },
+  filterScrollContent: {
     flexDirection: 'row',
-    gap: 6,
-  },
-  statTab: {
-    flex: 1,
-    backgroundColor: '#FFF',
-    paddingVertical: 10,
-    borderRadius: 12,
+    gap: 8,
+    paddingVertical: 4,
     alignItems: 'center',
+  },
+  filterPillBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
     borderWidth: 1,
-    borderColor: '#E6F4EA',
+    borderColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  statTabActive: {
-    borderColor: '#059669',
-    backgroundColor: '#E6F4EA',
+  filterPillBtnActive: {
+    backgroundColor: '#064E3B',
+    borderColor: '#064E3B',
   },
-  statVal: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#064E3B',
-  },
-  statLbl: {
-    fontSize: 10,
+  filterPillTxt: {
+    fontSize: 12,
     fontWeight: '700',
-    color: '#6B7280',
-    marginTop: 2,
+    color: '#4B5563',
+    lineHeight: 16,
+    includeFontPadding: false,
+  },
+  filterPillTxtActive: {
+    color: '#FFF',
+    fontWeight: '800',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 38,
     borderWidth: 1,
     borderColor: '#E6F4EA',
+    marginBottom: 4,
   },
   searchIcon: {
-    fontSize: 13,
+    fontSize: 12,
     marginRight: 6,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 8,
     fontSize: 12,
     color: '#111827',
   },
   scrollList: {
     paddingBottom: 24,
-    gap: 10,
-    marginTop: 6,
+    gap: 8,
+    marginTop: 4,
   },
   loadingBox: {
     flexDirection: 'row',
@@ -879,75 +862,75 @@ const styles = StyleSheet.create({
   emptyCard: {
     backgroundColor: '#FFF',
     borderRadius: 16,
-    padding: 28,
+    padding: 24,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E6F4EA',
     marginVertical: 12,
   },
   emptyEmoji: {
-    fontSize: 32,
-    marginBottom: 8,
+    fontSize: 28,
+    marginBottom: 6,
   },
   emptyTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: '#111827',
   },
   emptySub: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#6B7280',
     textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 16,
+    marginTop: 3,
+    lineHeight: 15,
   },
   ticketCard: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 14,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#E6F4EA',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
     elevation: 1,
   },
   ticketHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   catBadge: {
     backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 6,
   },
   catTxt: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#374151',
   },
   statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 6,
   },
   statusBadgeTxt: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
   },
   ticketTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: '#111827',
   },
   locationRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginVertical: 4,
+    marginVertical: 3,
   },
   locationTxt: {
     fontSize: 11,
@@ -955,61 +938,63 @@ const styles = StyleSheet.create({
     color: '#059669',
   },
   dateTxt: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#9CA3AF',
   },
   ticketDesc: {
     fontSize: 12,
     color: '#4B5563',
-    lineHeight: 17,
+    lineHeight: 16,
     marginTop: 2,
   },
   assignedBox: {
-    backgroundColor: '#EEF2FF',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#E0E7FF',
+    backgroundColor: '#F0FDF4',
+    borderLeftWidth: 3,
+    borderLeftColor: '#10B981',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginTop: 6,
   },
   assignedTxt: {
     fontSize: 11,
-    color: '#3730A3',
+    color: '#065F46',
   },
   resolutionBox: {
-    backgroundColor: '#F0FDF4',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#DCFCE7',
+    backgroundColor: '#ECFDF5',
+    borderLeftWidth: 3,
+    borderLeftColor: '#059669',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginTop: 6,
   },
   resolutionTitle: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
-    color: '#15803D',
+    color: '#047857',
   },
   resolutionTxt: {
     fontSize: 11,
-    color: '#166534',
-    marginTop: 2,
+    color: '#065F46',
+    marginTop: 1,
   },
   ticketFooterRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 8,
+    marginTop: 8,
+    paddingTop: 6,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   deleteTicketBtn: {
     backgroundColor: '#FEE2E2',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
   },
   deleteTicketBtnTxt: {
     fontSize: 11,
@@ -1022,9 +1007,9 @@ const styles = StyleSheet.create({
   },
   startWorkBtn: {
     backgroundColor: '#4338CA',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
   startWorkBtnTxt: {
     fontSize: 11,

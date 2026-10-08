@@ -285,10 +285,7 @@ export default function HomeScreen() {
         >
           {/* Clean App Header Bar */}
           <View style={styles.topHeader}>
-            <View>
-              <Text style={styles.brandTitle}>🌱 Trellis</Text>
-              <Text style={styles.brandSub}>Campus Applications & Services</Text>
-            </View>
+            <Text style={styles.brandTitle}>🌱 Trellis</Text>
             <View style={styles.topRightActions}>
               <View style={styles.roleTag}>
                 <Text style={styles.roleTagText}>
@@ -318,8 +315,48 @@ export default function HomeScreen() {
                   globalState.setUserRole(null);
                 }}
               >
-                <Text style={styles.logoutTopBtnText}>🚪 Logout</Text>
+                <Text style={styles.logoutTopBtnText}>🚪</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Welcome & Campus Hero Card */}
+          <View style={styles.heroCard}>
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroTextCol}>
+                <Text style={styles.heroGreeting}>Welcome back 👋</Text>
+                <Text style={styles.heroName} numberOfLines={1}>
+                  {userProfile?.name || (userRole ? `${userRole.toUpperCase()} PORTAL` : 'CAMPUS MEMBER')}
+                </Text>
+              </View>
+              <View style={styles.heroStatusPill}>
+                <View style={styles.heroStatusDot} />
+                <Text style={styles.heroStatusTxt}>Online</Text>
+              </View>
+            </View>
+
+            <View style={styles.heroDivider} />
+
+            <View style={styles.heroBottomRow}>
+              <Text style={styles.heroMetaTxt}>
+                {userProfile?.rollNumber ? `ID: ${userProfile.rollNumber}` : 'IPS Academy'}
+                {userProfile?.branch ? ` • ${userProfile.branch}` : ''}
+              </Text>
+              <TouchableOpacity
+                style={styles.heroSosBtn}
+                activeOpacity={0.8}
+                onPress={() => handleLaunchApp('sos')}
+              >
+                <Text style={styles.heroSosTxt}>🚨 Quick SOS</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Section Heading */}
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionHeaderTitle}>Campus Applications</Text>
+            <View style={styles.sectionCountBadge}>
+              <Text style={styles.sectionCountTxt}>{accessibleApps.length} active</Text>
             </View>
           </View>
 
@@ -347,12 +384,11 @@ export default function HomeScreen() {
                       </View>
                     )}
                   </View>
-                  <Text style={styles.appDesc} numberOfLines={2}>
-                    {app.desc}
-                  </Text>
                 </View>
 
-                <Text style={styles.appChevron}>➔</Text>
+                <View style={styles.chevronBox}>
+                  <Text style={styles.chevronTxt}>›</Text>
+                </View>
               </TouchableOpacity>
             ))}
           </View>
@@ -362,15 +398,26 @@ export default function HomeScreen() {
         <View style={styles.workspaceContainer}>
           {/* Header Back Bar */}
           <View style={styles.workspaceHeader}>
-            <Text style={styles.workspaceTitle}>
-              {activeApp.toUpperCase()} WORKSPACE
-            </Text>
             <TouchableOpacity
-              style={styles.closeWorkspaceBtn}
+              style={styles.backWorkspaceBtn}
               onPress={() => setActiveApp('none')}
+              activeOpacity={0.7}
             >
-              <Text style={styles.closeWorkspaceTxt}>✕ Close</Text>
+              <Text style={styles.backWorkspaceArrow}>‹</Text>
+              <Text style={styles.backWorkspaceTxt}>Back</Text>
             </TouchableOpacity>
+
+            <View style={styles.workspaceTitleBox}>
+              <Text style={styles.workspaceTitle} numberOfLines={1}>
+                {allApps.find((a) => a.id === activeApp)?.name || 'Campus Workspace'}
+              </Text>
+            </View>
+
+            <View style={styles.workspaceHeaderBadge}>
+              <Text style={styles.workspaceHeaderBadgeTxt}>
+                {allApps.find((a) => a.id === activeApp)?.badge || 'MODULE'}
+              </Text>
+            </View>
           </View>
 
           {/* Module Content */}
@@ -573,18 +620,21 @@ const styles = StyleSheet.create({
   },
   logoutTopBtn: {
     backgroundColor: '#FEE2E2',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    width: 38,
+    height: 38,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#FECACA',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   logoutTopBtnText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#991B1B',
+    fontSize: 16,
   },
   notifBadge: {
     position: 'absolute',
@@ -618,13 +668,124 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#065F46',
   },
+  heroCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E6F4EA',
+    shadowColor: '#064E3B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  heroTextCol: {
+    flex: 1,
+  },
+  heroGreeting: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  heroName: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#064E3B',
+    marginTop: 2,
+  },
+  heroStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  heroStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  heroStatusTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  heroDivider: {
+    height: 1,
+    backgroundColor: '#F3F4F6',
+    marginVertical: 12,
+  },
+  heroBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  heroMetaTxt: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+    flex: 1,
+  },
+  heroSosBtn: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  heroSosTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  sectionHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#374151',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  sectionCountBadge: {
+    backgroundColor: '#E6F4EA',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  sectionCountTxt: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#065F46',
+  },
   appsList: {
     gap: 12,
   },
   appCard: {
     backgroundColor: '#FFF',
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -637,14 +798,14 @@ const styles = StyleSheet.create({
     elevation: 1.5,
   },
   appIconBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
   appIconTxt: {
-    fontSize: 24,
+    fontSize: 22,
   },
   appMeta: {
     flex: 1,
@@ -652,8 +813,7 @@ const styles = StyleSheet.create({
   appTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 3,
+    gap: 8,
   },
   appName: {
     fontSize: 15,
@@ -662,25 +822,39 @@ const styles = StyleSheet.create({
   },
   appBadge: {
     backgroundColor: '#F3F4F6',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   appBadgeTxt: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
     color: '#4B5563',
+    letterSpacing: 0.3,
   },
   appDesc: {
     fontSize: 12,
     color: '#6B7280',
     lineHeight: 16,
   },
-  appChevron: {
-    fontSize: 14,
-    fontWeight: 'bold',
+  chevronBox: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chevronTxt: {
+    fontSize: 16,
+    fontWeight: '700',
     color: '#9CA3AF',
-    paddingLeft: 4,
+    marginTop: -2,
+    marginLeft: 1,
   },
   workspaceContainer: {
     flex: 1,
@@ -688,30 +862,62 @@ const styles = StyleSheet.create({
   },
   workspaceHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E6F4EA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  backWorkspaceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    gap: 2,
+  },
+  backWorkspaceArrow: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#064E3B',
+    marginTop: -2,
+  },
+  backWorkspaceTxt: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#064E3B',
+  },
+  workspaceTitleBox: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 6,
   },
   workspaceTitle: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: '#064E3B',
-    letterSpacing: 0.5,
-  },
-  closeWorkspaceBtn: {
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  closeWorkspaceTxt: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
-    color: '#DC2626',
+    color: '#111827',
+  },
+  workspaceHeaderBadge: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  workspaceHeaderBadgeTxt: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#065F46',
+    letterSpacing: 0.3,
   },
   workspaceBody: {
     padding: 12,
